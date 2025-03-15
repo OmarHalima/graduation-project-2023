@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "strict": true,
+    "lib": ["ES2020", "DOM", "ES2020.Promise", "ES2020.String", "ES2020.BigInt"],
+    "types": ["@supabase/supabase-js"],
+    "allowJs": true,
+    "checkJs": false,
+    "noImplicitAny": false
+  }
+} 

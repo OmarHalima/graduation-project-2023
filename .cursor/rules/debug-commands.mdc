@@ -1,0 +1,6 @@
+---
+description: this tool performs debugging steps for applications.
+globs: 
+alwaysApply: false
+---
+when i say /debug, gather console logs and take a screenshot of the app to help fix issues

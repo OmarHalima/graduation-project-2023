@@ -6,6 +6,7 @@ import {
   Settings,
   CheckSquare,
   Search,
+  GitBranch,
 } from 'lucide-react';
 import { Box, List, ListItem, ListItemIcon, ListItemText } from '@mui/material';
 
@@ -36,6 +37,11 @@ export function AdminNavigation() {
       path: '/tasks',
       label: 'Tasks',
       icon: <CheckSquare className="h-5 w-5" />,
+    },
+    {
+      path: '/phases',
+      label: 'Phases',
+      icon: <GitBranch className="h-5 w-5" />,
     },
     {
       path: '/deepsearch',

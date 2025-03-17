@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { User } from '../types/auth';
 import {
@@ -10,21 +10,86 @@ import {
   UserCircle,
   Search,
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { ThemeToggle } from './ThemeToggle';
 import { useTheme } from '../contexts/ThemeContext';
+import { UserAvatar } from './UserAvatar';
 
 interface LayoutProps {
   user: User | null;
   children: React.ReactNode;
 }
 
-export function Layout({ user, children }: LayoutProps) {
+export function Layout({ user: initialUser, children }: LayoutProps) {
+  const [user, setUser] = useState<User | null>(initialUser);
   const navigate = useNavigate();
   const location = useLocation();
   const currentPath = location.pathname;
   const { theme } = useTheme();
+
+  // Fetch latest user data including avatar_url
+  const fetchLatestUserData = async () => {
+    if (!initialUser?.id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', initialUser.id)
+        .single();
+
+      if (error) {
+        console.error('[Layout] Error fetching user data:', error);
+        return;
+      }
+
+      if (data) {
+        console.log('[Layout] Latest user data fetched:', data);
+        setUser({ ...initialUser, ...data });
+      }
+    } catch (error) {
+      console.error('[Layout] Error:', error);
+    }
+  };
+
+  // Fetch latest user data on mount and when initialUser changes
+  useEffect(() => {
+    fetchLatestUserData();
+  }, [initialUser?.id]);
+
+  // Add validation logging
+  useEffect(() => {
+    if (user) {
+      console.log('[Layout] User Data Validation:', {
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        role: user.role,
+        avatar_url: user.avatar_url
+      });
+
+      // Validate avatar URL
+      if (user.avatar_url) {
+        const img = new Image();
+        img.onload = () => {
+          console.log('[Layout] Avatar image loaded successfully:', user.avatar_url);
+        };
+        img.onerror = () => {
+          console.error('[Layout] Avatar image failed to load:', user.avatar_url);
+          // If avatar fails to load, try to fetch latest user data
+          fetchLatestUserData();
+        };
+        img.src = user.avatar_url;
+      } else {
+        console.log('[Layout] No avatar URL found, using initials fallback');
+        // If no avatar URL, try to fetch latest user data
+        fetchLatestUserData();
+      }
+    } else {
+      console.warn('[Layout] No user data available');
+    }
+  }, [user]);
 
   const handleSignOut = async () => {
     try {
@@ -60,17 +125,19 @@ export function Layout({ user, children }: LayoutProps) {
 
   // If no user is present, redirect to login
   if (!user) {
+    console.warn('[Layout] Redirecting to login due to missing user data');
     navigate('/login');
     return null;
   }
 
-  // Destructure user properties for type safety
-  const { 
-    avatar_url, 
-    full_name, 
-    email, 
-    role 
-  } = user;
+  // Log when avatar component is rendered
+  const handleAvatarRender = () => {
+    console.log('[Layout] UserAvatar component rendered with props:', {
+      user_id: user.id,
+      avatar_url: user.avatar_url,
+      size: { width: 40, height: 40 }
+    });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-background dark:text-dark-text-primary transition-colors">
@@ -83,25 +150,21 @@ export function Layout({ user, children }: LayoutProps) {
               <ThemeToggle />
             </div>
             {/* User Profile Section */}
-            <div className="mt-4 flex items-center space-x-3">
-              {avatar_url ? (
-                <img 
-                  src={avatar_url} 
-                  alt={full_name}
-                  className="h-10 w-10 rounded-full"
-                />
-              ) : (
-                <UserCircle className="h-10 w-10 text-gray-400 dark:text-gray-300" />
-              )}
+            <div className="mt-4 flex items-center space-x-3" onLoad={handleAvatarRender}>
+              <UserAvatar 
+                user={user} 
+                sx={{ width: 40, height: 40 }}
+                showTooltip={false}
+              />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                  {full_name}
+                  {user.full_name}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                  {email}
+                  {user.email}
                 </p>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium mt-1 ${getRoleColor(role)}`}>
-                  {role?.replace('_', ' ')}
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium mt-1 ${getRoleColor(user.role)}`}>
+                  {user.role?.replace('_', ' ')}
                 </span>
               </div>
             </div>

@@ -18,10 +18,10 @@ export async function uploadAvatar(userId: string, file: File): Promise<{ url: s
       return { url: null, error: new Error('File size exceeds 2MB limit') };
     }
 
-    // Create a unique file path for the avatar
+    // Create a unique file path for the avatar using the correct structure
     const fileExt = file.name.split('.').pop();
-    const fileName = `${userId}-${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
-    const filePath = `avatars/${fileName}`;
+    const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+    const filePath = `avatars/${userId}/${fileName}`;
 
     // Upload the file to Supabase Storage
     const { error: uploadError } = await supabase.storage
@@ -51,18 +51,19 @@ export async function uploadAvatar(userId: string, file: File): Promise<{ url: s
 /**
  * Delete an avatar from Supabase storage
  * @param avatarUrl The URL of the avatar to delete
+ * @param userId The user ID
  */
-export async function deleteAvatar(avatarUrl: string): Promise<{ success: boolean; error: Error | null }> {
+export async function deleteAvatar(avatarUrl: string, userId: string): Promise<{ success: boolean; error: Error | null }> {
   try {
     if (!avatarUrl) {
       return { success: false, error: new Error('No avatar URL provided') };
     }
 
     // Extract the file path from the URL
-    // Example URL: https://xxxx.supabase.co/storage/v1/object/public/user-avatars/avatars/user-123.jpg
+    // Example URL: https://xxxx.supabase.co/storage/v1/object/public/user-avatars/avatars/user-id/filename.jpg
     const urlParts = avatarUrl.split('/');
     const fileName = urlParts[urlParts.length - 1];
-    const filePath = `avatars/${fileName}`;
+    const filePath = `avatars/${userId}/${fileName}`;
 
     // Delete the file from storage
     const { error } = await supabase.storage

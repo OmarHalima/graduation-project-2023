@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Paper,
@@ -29,6 +29,8 @@ import {
   TableCell,
   Tooltip,
   MenuItem,
+  Collapse,
+  Select,
 } from '@mui/material';
 import {
   FileText,
@@ -44,6 +46,8 @@ import {
   Briefcase,
   Award,
   Calendar,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../contexts/auth/AuthContext';
@@ -126,11 +130,14 @@ interface TeamMemberRecord {
 interface ProjectKnowledgebaseProps {
   projectId: string;
   canEdit: boolean;
+  key?: string;
 }
 
 export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebaseProps) {
   const [activeTab, setActiveTab] = useState(0);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [completedTasks, setCompletedTasks] = useState<any[]>([]);
+  const [completedPhases, setCompletedPhases] = useState<any[]>([]);
   const [faqs, setFaqs] = useState<FAQItem[]>([]);
   const [resources, setResources] = useState<ResourceItem[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMemberRecord[]>([]);
@@ -148,6 +155,10 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
     description: '',
     type: 'link'
   });
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [categories, setCategories] = useState<string[]>([]);
   
   const { user } = useAuth();
 
@@ -183,12 +194,18 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
 
   const fetchData = async () => {
     try {
+      setLoading(true);
+      console.log('Fetching all knowledge base data');
       await Promise.all([
         fetchDocuments(),
         fetchFAQs(),
         fetchResources(),
         fetchTeamMembers(),
+        fetchCompletedTasks(),
+        fetchCompletedPhases(),
       ]);
+    } catch (error) {
+      console.error('Error fetching knowledge base data:', error);
     } finally {
       setLoading(false);
     }
@@ -406,16 +423,61 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
 
   const fetchDocuments = async () => {
     try {
+      console.log('Fetching documents for project:', projectId);
       const { data, error } = await supabase
         .from('project_documents')
         .select('*')
         .eq('project_id', projectId)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching documents:', error);
+        throw error;
+      }
+      
+      console.log('Successfully fetched documents:', data?.length);
+      
+      // Extract unique categories from documents
+      const uniqueCategories = Array.from(
+        new Set(data?.map(doc => {
+          // Map old categories to new ones for the filter
+          if (doc.category === 'Project Progress') {
+            if (doc.title === 'Completed Tasks Log') {
+              return 'Task Logs';
+            } else if (doc.title === 'Project Phases Progress') {
+              return 'Phase Logs';
+            }
+          }
+          return doc.category || 'Uncategorized';
+        }))
+      ).filter(Boolean) as string[];
+      
+      // Always include important categories
+      const allCategories = ['all'];
+      
+      // Add core categories
+      const coreCategories = ['Documentation', 'Task Logs', 'Phase Logs', 'Direct Task Logs', 'Direct Phase Logs'];
+      coreCategories.forEach(category => {
+        if (!allCategories.includes(category)) {
+          allCategories.push(category);
+        }
+      });
+      
+      // Add other unique categories found in documents
+      uniqueCategories.forEach(category => {
+        if (!allCategories.includes(category)) {
+          allCategories.push(category);
+        }
+      });
+      
+      console.log('Setting categories:', allCategories);
+      setCategories(allCategories);
       setDocuments(data || []);
     } catch (error) {
       console.error('Error fetching documents:', error);
+      // Set default categories even if document fetch fails
+      setCategories(['all', 'Documentation', 'Task Logs', 'Phase Logs', 'Direct Task Logs', 'Direct Phase Logs']);
+      setDocuments([]);
     }
   };
 
@@ -449,6 +511,122 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
     }
   };
 
+  const fetchCompletedTasks = async () => {
+    try {
+      console.log('Fetching completed tasks for project:', projectId);
+      
+      // Try a simplified query without joins that were causing errors
+      const { data, error } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('status', 'completed')
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching completed tasks:', error);
+        throw error;
+      }
+      
+      console.log('Successfully fetched completed tasks:', data?.length);
+      
+      // Get assignee names in a separate query if needed
+      if (data && data.length > 0) {
+        const userIds = data
+          .map(task => task.assigned_to)
+          .filter(id => id !== null && id !== undefined);
+        
+        if (userIds.length > 0) {
+          try {
+            const { data: userData } = await supabase
+              .from('users')
+              .select('id, full_name')
+              .in('id', userIds);
+            
+            if (userData) {
+              // Enhance tasks with user names
+              const enhancedTasks = data.map(task => {
+                const user = userData.find(u => u.id === task.assigned_to);
+                return {
+                  ...task,
+                  assignee_name: user ? user.full_name : 'Unknown'
+                };
+              });
+              
+              setCompletedTasks(enhancedTasks);
+              return;
+            }
+          } catch (userError) {
+            console.error('Error fetching user data for tasks:', userError);
+          }
+        }
+      }
+      
+      setCompletedTasks(data || []);
+    } catch (error) {
+      console.error('Failed to fetch completed tasks:', error);
+      setCompletedTasks([]);
+    }
+  };
+
+  const fetchCompletedPhases = async () => {
+    try {
+      console.log('Fetching completed phases for project:', projectId);
+      
+      // Try a simplified query without joins that were causing errors
+      const { data, error } = await supabase
+        .from('project_phases')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('status', 'completed')
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching completed phases:', error);
+        throw error;
+      }
+      
+      console.log('Successfully fetched completed phases:', data?.length);
+      
+      // Get creator names in a separate query if needed
+      if (data && data.length > 0) {
+        const userIds = data
+          .map(phase => phase.created_by)
+          .filter(id => id !== null && id !== undefined);
+        
+        if (userIds.length > 0) {
+          try {
+            const { data: userData } = await supabase
+              .from('users')
+              .select('id, full_name')
+              .in('id', userIds);
+            
+            if (userData) {
+              // Enhance phases with creator names
+              const enhancedPhases = data.map(phase => {
+                const user = userData.find(u => u.id === phase.created_by);
+                return {
+                  ...phase,
+                  creator_name: user ? user.full_name : 'Unknown'
+                };
+              });
+              
+              setCompletedPhases(enhancedPhases);
+              return;
+            }
+          } catch (userError) {
+            console.error('Error fetching user data for phases:', userError);
+          }
+        }
+      }
+      
+      setCompletedPhases(data || []);
+    } catch (error) {
+      console.error('Failed to fetch completed phases:', error);
+      setCompletedPhases([]);
+    }
+  };
+
   const handleDelete = async (type: string, id: string) => {
     if (!confirm('Are you sure you want to delete this item?')) return;
 
@@ -469,6 +647,251 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
       console.error('Error deleting item:', error);
       toast.error('Error deleting item');
     }
+  };
+
+  const handleDocumentClick = (docId: string) => {
+    setSelectedDocumentId(prevId => prevId === docId ? null : docId);
+  };
+
+  const renderDirectTaskLogs = () => {
+    if (completedTasks.length === 0) {
+      return (
+        <Typography color="text.secondary" align="center">
+          No completed tasks found
+        </Typography>
+      );
+    }
+
+    return (
+      <List>
+        {completedTasks.map((task) => (
+          <ListItem
+            key={task.id}
+            sx={{
+              bgcolor: 'background.paper',
+              mb: 2,
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: 'divider',
+            }}
+          >
+            <ListItemIcon>
+              <File size={20} />
+            </ListItemIcon>
+            <ListItemText
+              primary={
+                <Typography variant="subtitle1">
+                  {task.title}
+                </Typography>
+              }
+              secondary={
+                <Box>
+                  <Typography variant="body2" component="div">
+                    {task.description}
+                  </Typography>
+                  <Box mt={1} display="flex" flexWrap="wrap" gap={1}>
+                    <Chip 
+                      label={`Priority: ${task.priority}`} 
+                      size="small" 
+                      color={task.priority === 'high' ? 'error' : (task.priority === 'medium' ? 'warning' : 'default')}
+                    />
+                    <Chip 
+                      label={`Assigned to: ${task.assignee_name || task.assigned_to || 'Unknown'}`} 
+                      size="small" 
+                      variant="outlined" 
+                    />
+                    <Chip 
+                      label="Phase Task" 
+                      size="small" 
+                      variant="outlined" 
+                    />
+                    {task.due_date && (
+                      <Chip 
+                        label={`Due: ${format(new Date(task.due_date), 'MMM d, yyyy')}`} 
+                        size="small" 
+                        variant="outlined" 
+                      />
+                    )}
+                    {task.estimated_hours && (
+                      <Chip 
+                        label={`Est. Hours: ${task.estimated_hours}`} 
+                        size="small" 
+                        variant="outlined" 
+                      />
+                    )}
+                    <Chip 
+                      label={`Completed: ${format(new Date(task.updated_at), 'MMM d, yyyy')}`} 
+                      size="small" 
+                      color="success" 
+                    />
+                  </Box>
+                </Box>
+              }
+            />
+          </ListItem>
+        ))}
+      </List>
+    );
+  };
+
+  const renderDirectPhaseLogs = () => {
+    if (completedPhases.length === 0) {
+      return (
+        <Typography color="text.secondary" align="center">
+          No completed phases found
+        </Typography>
+      );
+    }
+
+    return (
+      <List>
+        {completedPhases.map((phase) => (
+          <ListItem
+            key={phase.id}
+            sx={{
+              bgcolor: 'background.paper',
+              mb: 2,
+              borderRadius: 1,
+              border: '1px solid',
+              borderColor: 'divider',
+            }}
+          >
+            <ListItemIcon>
+              <Briefcase size={20} />
+            </ListItemIcon>
+            <ListItemText
+              primary={
+                <Typography variant="subtitle1">
+                  {phase.name}
+                </Typography>
+              }
+              secondary={
+                <Box>
+                  <Typography variant="body2" component="div">
+                    {phase.description}
+                  </Typography>
+                  <Box mt={1} display="flex" flexWrap="wrap" gap={1}>
+                    <Chip 
+                      label={`Sequence: ${phase.sequence_order}`} 
+                      size="small" 
+                      variant="outlined" 
+                    />
+                    <Chip 
+                      label={`Created by: ${phase.creator_name || phase.created_by || 'Unknown'}`} 
+                      size="small" 
+                      variant="outlined" 
+                    />
+                    {phase.start_date && (
+                      <Chip 
+                        label={`Start: ${format(new Date(phase.start_date), 'MMM d, yyyy')}`} 
+                        size="small" 
+                        variant="outlined" 
+                      />
+                    )}
+                    {phase.end_date && (
+                      <Chip 
+                        label={`End: ${format(new Date(phase.end_date), 'MMM d, yyyy')}`} 
+                        size="small" 
+                        variant="outlined" 
+                      />
+                    )}
+                    <Chip 
+                      label={`Completed: ${format(new Date(phase.updated_at), 'MMM d, yyyy')}`} 
+                      size="small" 
+                      color="success" 
+                    />
+                  </Box>
+                </Box>
+              }
+            />
+          </ListItem>
+        ))}
+      </List>
+    );
+  };
+
+  useEffect(() => {
+    // Add direct task and phase log categories
+    if ((completedTasks.length > 0 || completedPhases.length > 0) && categories.length > 0) {
+      console.log('Updating categories with task and phase logs');
+      const newCategories = [...categories];
+      
+      if (completedTasks.length > 0 && !newCategories.includes('Direct Task Logs')) {
+        newCategories.push('Direct Task Logs');
+      }
+      
+      if (completedPhases.length > 0 && !newCategories.includes('Direct Phase Logs')) {
+        newCategories.push('Direct Phase Logs');
+      }
+      
+      if (newCategories.length !== categories.length) {
+        console.log('Setting new categories:', newCategories);
+        setCategories(newCategories);
+      }
+    }
+  }, [completedTasks, completedPhases, categories]);
+
+  // Ensure we always have Direct Task Logs category if we have completed tasks
+  useEffect(() => {
+    if (completedTasks.length > 0 && !categoryFilter.includes('Task')) {
+      console.log('Adding Direct Task Logs to categories');
+      setCategories(prev => {
+        if (!prev.includes('Direct Task Logs')) {
+          return [...prev, 'Direct Task Logs'];
+        }
+        return prev;
+      });
+    }
+  }, [completedTasks, categoryFilter]);
+
+  // Filter documents by category
+  const filteredDocuments = useMemo(() => {
+    console.log('Filtering documents by category:', categoryFilter);
+    console.log('Available documents:', documents.length);
+    console.log('Completed tasks:', completedTasks.length);
+    
+    if (categoryFilter === 'all') {
+      return documents;
+    }
+    
+    if (categoryFilter === 'Direct Task Logs') {
+      return []; // We render tasks separately
+    }
+    
+    if (categoryFilter === 'Direct Phase Logs') {
+      return []; // We render phases separately
+    }
+    
+    return documents.filter(doc => {
+      // Handle both old and new category names
+      if (categoryFilter === 'Task Logs') {
+        return doc.category === 'Task Logs' || 
+               doc.category === 'Completed Tasks' ||
+               (doc.category === 'Project Progress' && doc.title === 'Completed Tasks Log') ||
+               (doc.category === 'Project Progress' && doc.title === 'Task Logs') ||
+               (doc.title && doc.title.toLowerCase().includes('task'));
+      } else if (categoryFilter === 'Phase Logs') {
+        return doc.category === 'Phase Logs' || 
+               doc.category === 'Completed Phases' ||
+               (doc.category === 'Project Progress' && doc.title === 'Project Phases Progress') ||
+               (doc.category === 'Project Progress' && doc.title === 'Phase Logs') ||
+               (doc.title && doc.title.toLowerCase().includes('phase'));
+      } else {
+        return doc.category === categoryFilter;
+      }
+    });
+  }, [categoryFilter, documents, completedTasks, completedPhases]);
+  
+  // Map category display names for UI
+  const getCategoryDisplayName = (category: string, title: string): string => {
+    if (category === 'Project Progress') {
+      if (title === 'Completed Tasks Log') {
+        return 'Task Logs';
+      } else if (title === 'Project Phases Progress') {
+        return 'Phase Logs';
+      }
+    }
+    return category;
   };
 
   return (
@@ -507,72 +930,168 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
 
         <TabPanel value={activeTab} index={0}>
           <Box px={3}>
-            {canEdit && (
-              <Button
-                variant="contained"
-                startIcon={<Plus />}
-                onClick={() => handleOpenDialog('document')}
-                sx={{ mb: 3 }}
-              >
-                Add Document
-              </Button>
-            )}
-            
-            {documents.length > 0 ? (
-              <List>
-                {documents.map((doc) => (
-                  <ListItem
-                    key={doc.id}
-                    sx={{
-                      bgcolor: 'background.paper',
-                      mb: 2,
-                      borderRadius: 1,
-                      border: '1px solid',
-                      borderColor: 'divider',
+            <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+              <Box display="flex" alignItems="center" gap={2}>
+                <Typography variant="subtitle1">Filter by category:</Typography>
+                <Select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  size="small"
+                  sx={{ minWidth: 200 }}
+                >
+                  <MenuItem value="all">All Categories</MenuItem>
+                  
+                  {/* Task Categories */}
+                  <MenuItem 
+                    value="Direct Task Logs" 
+                    sx={{ 
+                      fontWeight: completedTasks.length > 0 ? 'bold' : 'normal',
+                      color: completedTasks.length > 0 ? 'primary.main' : 'inherit'
                     }}
                   >
-                    <ListItemIcon>
-                      <BookOpen size={20} />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={doc.title}
-                      secondary={
-                        <Box>
-                          <Typography variant="caption" color="text.secondary" display="block">
-                            Last updated: {new Date(doc.updated_at).toLocaleDateString()}
-                          </Typography>
-                          <Chip
-                            label={doc.category}
-                            size="small"
-                            sx={{ mt: 1 }}
-                          />
+                    Completed Tasks ({completedTasks.length})
+                  </MenuItem>
+                  
+                  {/* Phase Categories */}
+                  <MenuItem 
+                    value="Direct Phase Logs" 
+                    sx={{ 
+                      fontWeight: completedPhases.length > 0 ? 'bold' : 'normal',
+                      color: completedPhases.length > 0 ? 'primary.main' : 'inherit'
+                    }}
+                  >
+                    Completed Phases ({completedPhases.length})
+                  </MenuItem>
+                  
+                  {/* Divider */}
+                  <Divider />
+                  
+                  {/* Other Categories */}
+                  {categories
+                    .filter(cat => 
+                      cat !== 'all' && 
+                      cat !== 'Direct Task Logs' && 
+                      cat !== 'Direct Phase Logs'
+                    )
+                    .sort() // Sort alphabetically
+                    .map((category) => (
+                      <MenuItem key={category} value={category}>
+                        {category}
+                      </MenuItem>
+                  ))}
+                </Select>
+              </Box>
+              
+              {canEdit && (
+                <Button
+                  variant="contained"
+                  startIcon={<Plus />}
+                  onClick={() => handleOpenDialog('document')}
+                >
+                  Add Document
+                </Button>
+              )}
+            </Box>
+            
+            {/* Render direct task logs when that filter is selected */}
+            {categoryFilter === 'Direct Task Logs' && renderDirectTaskLogs()}
+            
+            {/* Render direct phase logs when that filter is selected */}
+            {categoryFilter === 'Direct Phase Logs' && renderDirectPhaseLogs()}
+            
+            {/* Render regular documents for other categories */}
+            {categoryFilter !== 'Direct Task Logs' && categoryFilter !== 'Direct Phase Logs' && (
+              filteredDocuments.length > 0 ? (
+                <List>
+                  {filteredDocuments.map((doc) => (
+                    <Box key={doc.id}>
+                      <ListItem
+                        sx={{
+                          bgcolor: 'background.paper',
+                          mb: selectedDocumentId === doc.id ? 0 : 2,
+                          borderRadius: selectedDocumentId === doc.id ? '8px 8px 0 0' : 8,
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => handleDocumentClick(doc.id)}
+                      >
+                        <ListItemIcon>
+                          <BookOpen size={20} />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={doc.title}
+                          secondary={
+                            <Box>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Last updated: {new Date(doc.updated_at).toLocaleDateString()}
+                              </Typography>
+                              <Chip
+                                label={getCategoryDisplayName(doc.category, doc.title)}
+                                size="small"
+                                sx={{ mt: 1 }}
+                              />
+                            </Box>
+                          }
+                        />
+                        <Box display="flex" alignItems="center">
+                          {selectedDocumentId === doc.id ? 
+                            <ChevronUp size={18} /> : 
+                            <ChevronDown size={18} />
+                          }
+                          {canEdit && (
+                            <Box ml={1}>
+                              <IconButton
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenDialog('document', doc);
+                                }}
+                                size="small"
+                              >
+                                <Edit2 size={16} />
+                              </IconButton>
+                              <IconButton
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete('document', doc.id);
+                                }}
+                                size="small"
+                                color="error"
+                              >
+                                <Trash2 size={16} />
+                              </IconButton>
+                            </Box>
+                          )}
                         </Box>
-                      }
-                    />
-                    {canEdit && (
-                      <Box>
-                        <IconButton
-                          onClick={() => handleOpenDialog('document', doc)}
-                          size="small"
+                      </ListItem>
+                      <Collapse in={selectedDocumentId === doc.id}>
+                        <Paper 
+                          variant="outlined" 
+                          sx={{ 
+                            p: 3, 
+                            borderTop: 0,
+                            borderRadius: '0 0 8px 8px',
+                            mb: 2,
+                            bgcolor: 'background.default'
+                          }}
                         >
-                          <Edit2 size={16} />
-                        </IconButton>
-                        <IconButton
-                          onClick={() => handleDelete('document', doc.id)}
-                          size="small"
-                          color="error"
-                        >
-                          <Trash2 size={16} />
-                        </IconButton>
-                      </Box>
-                    )}
-                  </ListItem>
-                ))}
-              </List>
-            ) : (
-              <Typography color="text.secondary" align="center">
-                No documents added yet
-              </Typography>
+                          <ReactMarkdown components={{
+                            p: ({ node, ...props }) => <p style={{ margin: '0.5em 0' }} {...props} />
+                          }}>
+                            {doc.content}
+                          </ReactMarkdown>
+                        </Paper>
+                      </Collapse>
+                    </Box>
+                  ))}
+                </List>
+              ) : (
+                <Typography color="text.secondary" align="center">
+                  {categoryFilter === 'all' 
+                    ? 'No documents added yet' 
+                    : `No documents found in the "${categoryFilter}" category`}
+                </Typography>
+              )
             )}
           </Box>
         </TabPanel>
@@ -772,14 +1291,14 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
                       </TableCell>
                       <TableCell width={150}>
                         <Tooltip title={member.user?.department || '-'}>
-                          <Typography noWrap>
+                          <Typography component="div" noWrap>
                             {member.user?.department || '-'}
                           </Typography>
                         </Tooltip>
                       </TableCell>
                       <TableCell width={150}>
                         <Tooltip title={member.user?.position || '-'}>
-                          <Typography noWrap>
+                          <Typography component="div" noWrap>
                             {member.user?.position || '-'}
                           </Typography>
                         </Tooltip>
@@ -803,20 +1322,22 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
                               .filter((skill): skill is string => Boolean(skill))
                               .map((skill, index) => (
                                 <Tooltip key={index} title={skill.trim()}>
-                                  <Chip
-                                    label={skill.trim()}
-                                    size="small"
-                                    variant="outlined"
-                                    sx={{ 
-                                      maxWidth: '140px',
-                                      '& .MuiChip-label': {
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                        maxWidth: '130px'
-                                      }
-                                    }}
-                                  />
+                                  <div>
+                                    <Chip
+                                      label={skill.trim()}
+                                      size="small"
+                                      variant="outlined"
+                                      sx={{ 
+                                        maxWidth: '140px',
+                                        '& .MuiChip-label': {
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap',
+                                          maxWidth: '130px'
+                                        }
+                                      }}
+                                    />
+                                  </div>
                                 </Tooltip>
                               ))}
                           </Box>
@@ -826,6 +1347,7 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
                         <Tooltip title={member.knowledge?.work_experience || '-'}>
                           <Typography
                             variant="body2"
+                            component="div"
                             sx={{
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -842,7 +1364,7 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
                       </TableCell>
                       <TableCell width={150}>
                         <Tooltip title={member.knowledge?.languages || '-'}>
-                          <Typography noWrap>
+                          <Typography component="div" noWrap>
                             {member.knowledge?.languages || '-'}
                           </Typography>
                         </Tooltip>
@@ -850,6 +1372,7 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
                       <TableCell width={150}>
                         <Tooltip title={member.knowledge?.education || '-'}>
                           <Typography
+                            component="div"
                             sx={{
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -884,119 +1407,160 @@ export function ProjectKnowledgebase({ projectId, canEdit }: ProjectKnowledgebas
         fullWidth
       >
         <DialogTitle>
-          {editItem ? 'Edit' : 'Add'} {dialogType === 'document' ? 'Document' : dialogType === 'faq' ? 'FAQ' : 'Resource'}
+          {editItem ? `Edit ${dialogType}` : `Add ${dialogType}`}
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ pt: 2 }}>
-            {dialogType === 'document' && (
-              <Box>
-                <TextField
-                  label="Title"
-                  fullWidth
-                  value={formData.title}
-                  onChange={handleInputChange('title')}
-                  sx={{ mb: 2 }}
-                  required
-                />
-                <TextField
-                  label="Category"
-                  fullWidth
-                  value={formData.category}
-                  onChange={handleInputChange('category')}
-                  sx={{ mb: 2 }}
-                  required
-                />
-                <TextField
-                  label="Content"
-                  multiline
-                  rows={10}
-                  fullWidth
-                  value={formData.content}
-                  onChange={handleInputChange('content')}
-                  helperText="Supports Markdown formatting"
-                  required
-                />
-              </Box>
-            )}
-
-            {dialogType === 'faq' && (
-              <Box>
-                <TextField
-                  label="Question"
-                  fullWidth
-                  value={formData.question}
-                  onChange={handleInputChange('question')}
-                  sx={{ mb: 2 }}
-                  required
-                />
-                <TextField
-                  label="Answer"
-                  multiline
-                  rows={4}
-                  fullWidth
-                  value={formData.answer}
-                  onChange={handleInputChange('answer')}
-                  required
-                />
-              </Box>
-            )}
-
-            {dialogType === 'resource' && (
-              <Box>
-                <TextField
-                  label="Title"
-                  fullWidth
-                  value={formData.title}
-                  onChange={handleInputChange('title')}
-                  sx={{ mb: 2 }}
-                  required
-                />
-                <TextField
-                  label="URL"
-                  fullWidth
-                  value={formData.url}
-                  onChange={handleInputChange('url')}
-                  sx={{ mb: 2 }}
-                  required
-                />
-                <TextField
-                  label="Description"
-                  multiline
-                  rows={3}
-                  fullWidth
-                  value={formData.description}
-                  onChange={handleInputChange('description')}
-                  sx={{ mb: 2 }}
-                />
-                <TextField
-                  select
-                  label="Type"
-                  fullWidth
-                  value={formData.type}
-                  onChange={handleInputChange('type')}
+          {dialogType === 'document' && (
+            <Box sx={{ mt: 2 }}>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="subtitle1">
+                  {previewMode ? 'Preview' : 'Edit Document'}
+                </Typography>
+                <Button 
+                  variant="outlined" 
+                  size="small"
+                  onClick={() => setPreviewMode(!previewMode)}
                 >
-                  <MenuItem value="link">External Link</MenuItem>
-                  <MenuItem value="document">Document</MenuItem>
-                  <MenuItem value="video">Video</MenuItem>
-                  <MenuItem value="other">Other</MenuItem>
-                </TextField>
+                  {previewMode ? 'Edit' : 'Preview'}
+                </Button>
               </Box>
-            )}
-          </Box>
+
+              {previewMode ? (
+                <Paper 
+                  variant="outlined" 
+                  sx={{ 
+                    p: 3, 
+                    borderRadius: 1,
+                    minHeight: '300px',
+                    maxHeight: '500px',
+                    overflow: 'auto'
+                  }}
+                >
+                  <Typography variant="h5" gutterBottom>
+                    {formData.title}
+                  </Typography>
+                  <Chip
+                    label={getCategoryDisplayName(formData.category, formData.title)}
+                    size="small"
+                    sx={{ mb: 2 }}
+                  />
+                  <ReactMarkdown components={{
+                    p: ({ node, ...props }) => <p style={{ margin: '0.5em 0' }} {...props} />
+                  }}>
+                    {formData.content}
+                  </ReactMarkdown>
+                </Paper>
+              ) : (
+                <>
+                  <TextField
+                    label="Title"
+                    value={formData.title}
+                    onChange={handleInputChange('title')}
+                    fullWidth
+                    margin="normal"
+                    required
+                  />
+                  <TextField
+                    label="Category"
+                    value={formData.category}
+                    onChange={handleInputChange('category')}
+                    fullWidth
+                    margin="normal"
+                  />
+                  <TextField
+                    label="Content (Markdown supported)"
+                    value={formData.content}
+                    onChange={handleInputChange('content')}
+                    fullWidth
+                    margin="normal"
+                    multiline
+                    rows={10}
+                    required
+                    helperText="Markdown formatting is supported. Use # for headings, * for lists, etc."
+                  />
+                </>
+              )}
+            </Box>
+          )}
+
+          {dialogType === 'faq' && (
+            <Box>
+              <TextField
+                label="Question"
+                fullWidth
+                value={formData.question}
+                onChange={handleInputChange('question')}
+                sx={{ mb: 2 }}
+                required
+              />
+              <TextField
+                label="Answer"
+                multiline
+                rows={4}
+                fullWidth
+                value={formData.answer}
+                onChange={handleInputChange('answer')}
+                required
+              />
+            </Box>
+          )}
+
+          {dialogType === 'resource' && (
+            <Box>
+              <TextField
+                label="Title"
+                fullWidth
+                value={formData.title}
+                onChange={handleInputChange('title')}
+                sx={{ mb: 2 }}
+                required
+              />
+              <TextField
+                label="URL"
+                fullWidth
+                value={formData.url}
+                onChange={handleInputChange('url')}
+                sx={{ mb: 2 }}
+                required
+              />
+              <TextField
+                label="Description"
+                multiline
+                rows={3}
+                fullWidth
+                value={formData.description}
+                onChange={handleInputChange('description')}
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                select
+                label="Type"
+                fullWidth
+                value={formData.type}
+                onChange={handleInputChange('type')}
+              >
+                <MenuItem value="link">External Link</MenuItem>
+                <MenuItem value="document">Document</MenuItem>
+                <MenuItem value="video">Video</MenuItem>
+                <MenuItem value="other">Other</MenuItem>
+              </TextField>
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Cancel</Button>
           <Button
-            variant="contained"
             onClick={() => {
               if (dialogType === 'document') {
                 handleSaveDocument(formData);
               } else if (dialogType === 'faq') {
                 handleSaveFAQ(formData);
-              } else {
+              } else if (dialogType === 'resource') {
                 handleSaveResource(formData);
               }
             }}
+            variant="contained"
+            color="primary"
           >
             Save
           </Button>

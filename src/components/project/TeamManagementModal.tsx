@@ -27,6 +27,7 @@ import {
   Radio,
   Checkbox,
 } from '@mui/material';
+import { UserAvatar } from '../UserAvatar';
 
 interface TeamManagementModalProps {
   projectId: string;
@@ -334,11 +335,10 @@ export function TeamManagementModal({ projectId, onClose, onUpdate }: TeamManage
                       onClick={() => handleToggleUser(user.id)}
                     >
                       <Box display="flex" alignItems="center" gap={2} width="100%">
-                        {user.avatar_url ? (
-                          <Avatar src={user.avatar_url} />
-                        ) : (
-                          <Avatar>{user.full_name?.[0]}</Avatar>
-                        )}
+                        <UserAvatar 
+                          user={user}
+                          sx={{ width: 40, height: 40 }}
+                        />
                         <Box sx={{ minWidth: 0, flex: 1 }}>
                           <Typography
                             variant="subtitle2"

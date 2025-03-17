@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Avatar, AvatarProps, Tooltip } from '@mui/material';
 import { User } from '../types/auth';
 
@@ -18,6 +18,12 @@ export function UserAvatar({
   sx,
   ...props 
 }: UserAvatarProps) {
+  const [avatarSrc, setAvatarSrc] = useState<string | undefined>(user?.avatar_url || undefined);
+
+  useEffect(() => {
+    setAvatarSrc(user?.avatar_url || undefined);
+  }, [user?.avatar_url]);
+
   if (!user) {
     return (
       <Avatar 
@@ -40,17 +46,22 @@ export function UserAvatar({
     return fallbackText ? fallbackText.charAt(0).toUpperCase() : '?';
   };
 
+  const handleAvatarError = () => {
+    setAvatarSrc(undefined);
+  };
+
   const avatar = (
     <Avatar
-      src={user.avatar_url || undefined}
+      src={avatarSrc}
       alt={user.full_name || ''}
+      onError={handleAvatarError}
       sx={{
-        bgcolor: !user.avatar_url ? 'primary.main' : undefined,
+        bgcolor: !avatarSrc ? 'primary.main' : undefined,
         ...sx
       }}
       {...props}
     >
-      {!user.avatar_url && getInitial()}
+      {!avatarSrc && getInitial()}
     </Avatar>
   );
 

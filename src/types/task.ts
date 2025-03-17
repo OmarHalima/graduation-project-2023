@@ -1,4 +1,5 @@
 import type { User } from './auth';
+import type { Phase } from './phase';
 
 export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'completed';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -16,6 +17,7 @@ export interface Task {
   estimated_hours: number | null;
   created_at: string;
   updated_at: string;
+  phase_id: string | null;
   assignee?: {
     id: string;
     full_name: string;
@@ -26,6 +28,7 @@ export interface Task {
     full_name: string;
     email: string;
   };
+  phase?: Phase;
   ai_insights?: {
     risk_assessment?: string;
   };
@@ -61,11 +64,16 @@ export interface TaskSuggestion {
   id?: string;
   title: string;
   description: string;
-  priority: 'low' | 'medium' | 'high';
+  priority: TaskPriority;
   estimated_hours: number;
   suggested_assignee: string | null;
+  suggested_phase?: string;
+  suggested_due_date?: string;
   status?: string;
   project_id?: string;
   created_at?: string;
   updated_at?: string;
+  assigned_to?: string | null;
+  rationale?: string;
+  added?: boolean;
 } 

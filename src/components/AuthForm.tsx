@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Mail, Lock, User, Briefcase } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { generateOtp } from '../../lib/otpService';
+import { sendEmail } from '../../lib/emailService';
+import { getOTPTemplate } from '../../lib/emailTemplates';
+import { OTPVerification } from './OTPVerification';
 
 interface AuthFormProps {
   mode: 'login' | 'signup';
@@ -16,6 +20,8 @@ export function AuthForm({ mode, onModeChange }: AuthFormProps) {
     fullName: '',
     role: 'employee' as const,
   });
+  const [showOtpVerification, setShowOtpVerification] = useState(false);
+  const [credentialsValid, setCredentialsValid] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,12 +43,29 @@ export function AuthForm({ mode, onModeChange }: AuthFormProps) {
         if (error) throw error;
         toast.success('Check your email to confirm your account');
       } else {
+        // First validate credentials
         const { error } = await supabase.auth.signInWithPassword({
           email: formData.email,
           password: formData.password,
         });
+
         if (error) throw error;
-        toast.success('Successfully logged in');
+        
+        // Credentials are valid, generate and send OTP
+        const otpResult = await generateOtp(formData.email);
+        
+        if (!otpResult.success) {
+          throw new Error(otpResult.message || 'Failed to generate OTP');
+        }
+        
+        // Send OTP email
+        const emailTemplate = getOTPTemplate(otpResult.otp!);
+        await sendEmail(formData.email, emailTemplate);
+        
+        // Set state to show OTP verification screen
+        setCredentialsValid(true);
+        setShowOtpVerification(true);
+        toast.success('Verification code sent to your email');
       }
     } catch (error: any) {
       toast.error(error.message);
@@ -106,6 +129,44 @@ export function AuthForm({ mode, onModeChange }: AuthFormProps) {
       toast.error(error.message);
     }
   };
+
+  const handleOtpVerified = async () => {
+    // Complete the sign-in process after OTP verification
+    try {
+      // Use the stored credentials which were already validated
+      const { error } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+      
+      if (error) throw error;
+      
+      setShowOtpVerification(false);
+      toast.success('Successfully logged in');
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  };
+
+  const handleCancelOtp = () => {
+    setShowOtpVerification(false);
+    setCredentialsValid(false);
+    // Generate and send a new OTP if the user requests it
+    if (credentialsValid) {
+      handleSubmit({ preventDefault: () => {} } as React.FormEvent);
+    }
+  };
+
+  // If showing OTP verification, render that component
+  if (showOtpVerification) {
+    return (
+      <OTPVerification 
+        email={formData.email} 
+        onVerified={handleOtpVerified} 
+        onCancel={handleCancelOtp} 
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 relative overflow-hidden">
@@ -249,23 +310,51 @@ export function AuthForm({ mode, onModeChange }: AuthFormProps) {
               Transform your workflow with intelligent project management. Our AI-driven platform helps
               you make better decisions and streamline your processes.
             </p>
-            <ul className="space-y-4">
-              <li className="flex items-center gap-2">
-                <div className="h-2 w-2 bg-white rounded-full"></div>
-                <span>Smart task automation</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <div className="h-2 w-2 bg-white rounded-full"></div>
-                <span>AI-powered insights</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <div className="h-2 w-2 bg-white rounded-full"></div>
-                <span>Real-time collaboration</span>
-              </li>
-            </ul>
+            
+            <div className="space-y-6">
+              <div className="flex items-start">
+                <div className="h-10 w-10 rounded-full bg-blue-500 bg-opacity-50 flex items-center justify-center mr-4">
+                  <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="text-xl font-semibold mb-1">Enhanced Security</h4>
+                  <p className="text-blue-100">Two-factor authentication for secure access to your account</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start">
+                <div className="h-10 w-10 rounded-full bg-blue-500 bg-opacity-50 flex items-center justify-center mr-4">
+                  <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="text-xl font-semibold mb-1">Smart Task Management</h4>
+                  <p className="text-blue-100">AI-powered task prioritization and allocation</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start">
+                <div className="h-10 w-10 rounded-full bg-blue-500 bg-opacity-50 flex items-center justify-center mr-4">
+                  <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 className="text-xl font-semibold mb-1">Real-time Collaboration</h4>
+                  <p className="text-blue-100">Work together seamlessly with your team</p>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80')] bg-no-repeat bg-cover"></div>
+          
+          {/* Abstract shape decoration */}
+          <div className="absolute bottom-0 right-0 opacity-10">
+            <svg width="400" height="400" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+              <path fill="#FFFFFF" d="M37.5,-65.1C46.9,-55.3,51.5,-42.6,58.8,-31.3C66.1,-20,76.1,-10,74.9,-0.7C73.7,8.7,61.3,17.4,52.5,27.4C43.7,37.4,38.5,48.7,29.7,53.3C20.9,57.9,8.4,55.7,-3.1,60.6C-14.7,65.5,-25.2,77.5,-38.3,78.2C-51.3,78.9,-66.9,68.4,-71.3,54.1C-75.7,39.8,-68.9,21.9,-67.7,5.6C-66.4,-10.6,-70.7,-21.3,-69.1,-34.6C-67.5,-47.9,-60,-63.8,-47.4,-72.5C-34.9,-81.2,-17.5,-82.8,-1.9,-79.8C13.7,-76.7,28.1,-74.9,37.5,-65.1Z" transform="translate(100 100)" />
+            </svg>
           </div>
         </div>
       </div>

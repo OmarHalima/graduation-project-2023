@@ -96,56 +96,41 @@ export async function fetchRecentActivities(): Promise<Activity[]> {
 // Function to fetch project status
 export async function fetchProjectStatus(): Promise<Project[]> {
   try {
-    const { data, error } = await supabase
-      .rpc('get_project_progress')
-      .select('*');
+    // Direct query to projects and tasks tables since get_project_progress RPC doesn't exist
+    const { data: projectData, error: projectError } = await supabase
+      .from('projects')
+      .select('id, name, status, progress');
 
-    if (error) {
-      // If the RPC function doesn't exist, fallback to a regular query
-      const { data: projectData, error: projectError } = await supabase
-        .from('projects')
-        .select('id, name, status, progress');
+    if (projectError) throw projectError;
 
-      if (projectError) throw projectError;
+    // For each project, get the task counts
+    const projectsWithProgress = await Promise.all((projectData || []).map(async (project) => {
+      const { data: taskData, error: taskError } = await supabase
+        .from('tasks')
+        .select('id, status')
+        .eq('project_id', project.id);
 
-      // For each project, get the task counts
-      const projectsWithProgress = await Promise.all((projectData || []).map(async (project) => {
-        const { data: taskData, error: taskError } = await supabase
-          .from('tasks')
-          .select('id, status')
-          .eq('project_id', project.id);
+      if (taskError) throw taskError;
 
-        if (taskError) throw taskError;
+      const totalTasks = taskData?.length || 0;
+      const completedTasks = taskData?.filter(task => task.status === 'completed').length || 0;
+      
+      // Calculate progress based on completed tasks
+      const calculatedProgress = totalTasks > 0 
+        ? Math.round((completedTasks / totalTasks) * 100) 
+        : 0;
 
-        const totalTasks = taskData?.length || 0;
-        const completedTasks = taskData?.filter(task => task.status === 'completed').length || 0;
-        
-        // Calculate progress based on completed tasks
-        const calculatedProgress = totalTasks > 0 
-          ? Math.round((completedTasks / totalTasks) * 100) 
-          : 0;
-
-        return {
-          id: project.id,
-          name: project.name,
-          status: project.status,
-          progress: project.progress || calculatedProgress,
-          total_tasks: totalTasks,
-          completed_tasks: completedTasks
-        };
-      }));
-
-      return projectsWithProgress;
-    }
-
-    return data.map(project => ({
-      id: project.id,
-      name: project.name,
-      status: project.status,
-      progress: project.progress,
-      total_tasks: project.total_tasks,
-      completed_tasks: project.completed_tasks
+      return {
+        id: project.id,
+        name: project.name,
+        status: project.status,
+        progress: project.progress || calculatedProgress,
+        total_tasks: totalTasks,
+        completed_tasks: completedTasks
+      };
     }));
+
+    return projectsWithProgress;
   } catch (error) {
     console.error('Error fetching project status:', error);
     return [];

@@ -14,9 +14,13 @@ interface Education {
 
 interface Experience {
   company: string;
-  position: string;
-  duration: string;
+  role: string;
+  start_date: string;
+  end_date: string | null;
+  description: string;
   responsibilities: string[];
+  position?: string;
+  duration?: string;
   achievements?: string[];
 }
 
@@ -36,7 +40,7 @@ interface Certification {
   name: string;
   issuer: string;
   year: string;
-  expiry?: string;
+  expiry?: string | null;
 }
 
 interface Interview {
@@ -51,7 +55,7 @@ interface Interview {
 }
 
 interface Note {
-  note_text: string;
+  note: string;
   created_at: string;
   creator: {
     full_name: string;
@@ -91,66 +95,44 @@ interface UserAnalysisProps {
   userId: string;
 }
 
-interface AnalysisTemplateData extends UserData {
-  // No need to redefine fields as they're already properly defined in UserData
-}
-
-interface DatabaseUser {
-  id: string;
-  email: string;
-  full_name: string;
-  role: string;
-  department: string | null;
-  position: string | null;
-  status: string;
-}
-
-interface DatabaseInterview {
-  interview_date: string;
-  notes: string;
-  result: string;
-  interviewer: {
-    full_name: string;
-  } | null;
-}
-
-interface DatabaseNote {
-  note: string;
-  created_at: string;
-  creator: {
-    full_name: string;
-  } | null;
-}
-
-interface DatabaseProject {
-  project_name: string;
-  role: string;
-  start_date: string;
-  end_date: string | null;
-  responsibilities: string | null;
-}
-
-interface CVParsedData {
-  education: string;
-  work_experience: string;
-  skills: string;
-  languages: string;
-  certifications: string;
-}
-
 const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
-  const { user: currentUser } = useAuth();
+  const { user } = useAuth();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [analysis, setAnalysis] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [fetchingData, setFetchingData] = useState<boolean>(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
   useEffect(() => {
     fetchUserData();
+    // Get the current authenticated user directly from Supabase
+    const getCurrentUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        console.log('Direct session check:', {
+          sessionUser: session.user,
+          userId: session.user.id
+        });
+        setCurrentUser(session.user);
+      } else {
+        console.log('No active session found in direct check');
+      }
+    };
+    getCurrentUser();
   }, [userId]);
 
+  useEffect(() => {
+    // Log authentication state when component mounts or auth state changes
+    console.log('UserAnalysis component - Auth state:', { 
+      isAuthenticated: !!user,
+      userId: user?.id,
+      viewingUserId: userId,
+      currentUserFromState: currentUser?.id
+    });
+  }, [user, userId, currentUser]);
+
   const fetchUserData = async () => {
-    setLoading(true);
+    setFetchingData(true);
     try {
       // Fetch basic user information
       const { data: userData, error: userError } = await supabase
@@ -176,12 +158,166 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
         .eq('user_id', userId)
         .single();
 
-      if (cvError && cvError.code !== 'PGRST116') throw cvError;
+      let parsedEducation = [];
+      let parsedExperience = [];
+      let parsedSkills = [];
+      let parsedLanguages = [];
+      let parsedCertifications = [];
+
+      if (cvData) {
+        // Parse education
+        try {
+          if (cvData.education) {
+            const eduLines = cvData.education.split('\n');
+            for (let i = 0; i < eduLines.length; i += 2) {
+              if (eduLines[i] && eduLines[i+1]) {
+                const institutionDegree = eduLines[i].split(' - ');
+                const institution = institutionDegree[0]?.trim();
+                const degree = institutionDegree[1]?.trim();
+                
+                const fieldYear = eduLines[i+1].match(/(.*)\s*\((\d{4})\)/);
+                const field = fieldYear?.[1]?.trim() || '';
+                const year = fieldYear?.[2]?.trim() || '';
+                
+                parsedEducation.push({
+                  institution,
+                  degree,
+                  field,
+                  year,
+                  achievements: []
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error parsing education:', err);
+        }
+        
+        // Parse experience
+        try {
+          if (cvData.work_experience) {
+            const expLines = cvData.work_experience.split('\n');
+            let currentExp = null;
+            
+            for (let i = 0; i < expLines.length; i++) {
+              const line = expLines[i].trim();
+              if (line.includes(' - ') && !line.startsWith('-')) {
+                // This looks like a company - role line
+                if (currentExp) {
+                  parsedExperience.push(currentExp);
+                }
+                
+                const companyRole = line.split(' - ');
+                currentExp = {
+                  company: companyRole[0]?.trim(),
+                  role: companyRole[1]?.trim(),
+                  start_date: '',
+                  end_date: '',
+                  description: '',
+                  responsibilities: [] as string[],
+                  position: companyRole[1]?.trim(),
+                  duration: ''
+                };
+              } else if (line.match(/[A-Za-z]+ \d{4} - [A-Za-z]+ \d{4}|[A-Za-z]+ \d{4} - Present/i) && currentExp) {
+                // This looks like a date range
+                const dates = line.split(' - ');
+                currentExp.start_date = dates[0]?.trim();
+                currentExp.end_date = dates[1]?.trim();
+                currentExp.duration = `${dates[0]?.trim()} - ${dates[1]?.trim()}`;
+              } else if (line && currentExp) {
+                // This is probably a responsibility or description
+                if (line.startsWith('-')) {
+                  currentExp.responsibilities.push(line.substring(1).trim());
+                } else {
+                  if (currentExp.description) {
+                    currentExp.description += ' ' + line;
+                  } else {
+                    currentExp.description = line;
+                  }
+                }
+              }
+            }
+            
+            if (currentExp) {
+              parsedExperience.push(currentExp);
+            }
+          }
+        } catch (err) {
+          console.error('Error parsing work experience:', err);
+        }
+        
+        // Parse skills
+        try {
+          if (cvData.skills) {
+            const skillLines = cvData.skills.split('\n\n');
+            for (const line of skillLines) {
+              if (line.trim()) {
+                const skillLevel = line.split(' - ');
+                const skill = skillLevel[0]?.trim();
+                const level = skillLevel[1]?.trim() !== 'Not specified' 
+                  ? skillLevel[1]?.trim() 
+                  : 'Intermediate';
+                
+                parsedSkills.push({
+                  name: skill,
+                  level
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error parsing skills:', err);
+        }
+        
+        // Parse languages
+        try {
+          if (cvData.languages && !cvData.languages.includes('Not Available')) {
+            const langLines = cvData.languages.split('\n');
+            for (const line of langLines) {
+              if (line.trim() && !line.includes('Not Available')) {
+                const langLevel = line.split(' - ');
+                parsedLanguages.push({
+                  language: langLevel[0]?.trim(),
+                  proficiency: langLevel[1]?.trim() !== 'Not Available' 
+                    ? langLevel[1]?.trim() 
+                    : 'Intermediate',
+                  certifications: []
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error parsing languages:', err);
+        }
+        
+        // Parse certifications
+        try {
+          if (cvData.certifications && !cvData.certifications.includes('Not Available')) {
+            const certLines = cvData.certifications.split('\n');
+            for (const line of certLines) {
+              if (line.trim() && !line.includes('Not Available')) {
+                const certMatch = line.match(/(.*) - (.*) \((.*)\)/);
+                if (certMatch) {
+                  parsedCertifications.push({
+                    name: certMatch[1]?.trim(),
+                    issuer: certMatch[2]?.trim(),
+                    year: certMatch[3]?.trim(),
+                    expiry: null as string | null
+                  });
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error parsing certifications:', err);
+        }
+      }
 
       // Fetch interviews
       const { data: interviewsData, error: interviewsError } = await supabase
           .from('user_interviews')
           .select(`
+          id,
             interview_date,
             notes,
             result,
@@ -192,6 +328,18 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
 
       if (interviewsError) throw interviewsError;
 
+      // Transform interviews data to match the Interview interface
+      const formattedInterviews = interviewsData ? interviewsData.map((interview: any) => ({
+        interview_date: interview.interview_date,
+        notes: interview.notes,
+        result: interview.result,
+        interviewer: {
+          full_name: interview.interviewer?.full_name || 'Unknown'
+        },
+        strengths: [],
+        areas_for_improvement: []
+      })) : [];
+
       // Fetch projects
       const { data: projectsData, error: projectsError } = await supabase
           .from('user_projects')
@@ -201,12 +349,24 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
             role,
             start_date,
             end_date,
-            responsibilities
+          responsibilities,
+          technologies
           `)
         .eq('user_id', userId)
         .order('start_date', { ascending: false });
 
       if (projectsError) throw projectsError;
+
+      // Transform projects data to match the Project interface
+      const formattedProjects = projectsData ? projectsData.map((project: any) => ({
+        name: project.project_name,
+        role: project.role,
+        description: project.responsibilities?.[0] || '',
+        start_date: project.start_date,
+        end_date: project.end_date,
+        technologies: project.technologies || [],
+        outcomes: []
+      })) : [];
 
       // Fetch notes
       const { data: notesData, error: notesError } = await supabase
@@ -214,6 +374,7 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
           .select(`
             id,
             note,
+          category,
             created_at,
             creator:created_by(full_name)
           `)
@@ -222,163 +383,64 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
 
       if (notesError) throw notesError;
 
-      // Type assertions
-      const typedUserData = userData as DatabaseUser;
-      const typedCVData = cvData as CVParsedData | null;
-      const typedInterviewsData = (interviewsData || []) as unknown as {
-        interview_date: string;
-        notes: string;
-        result: string;
-        interviewer: { full_name: string } | null;
-      }[];
-      const typedProjectsData = (projectsData || []) as DatabaseProject[];
-      const typedNotesData = (notesData || []) as unknown as {
-        note: string;
-        created_at: string;
-        creator: { full_name: string } | null;
-      }[];
+      // Transform notes data to match the Note interface
+      const formattedNotes = notesData ? notesData.map((noteItem: any) => ({
+        note: noteItem.note,
+        created_at: noteItem.created_at,
+        creator: {
+          full_name: noteItem.creator?.full_name || 'Unknown'
+        },
+        category: noteItem.category || ''
+      })) : [];
 
-      // Combine all data
-      const combinedData: UserData = {
-        ...typedUserData,
-        education: typedCVData?.education ? 
-          (typeof typedCVData.education === 'string' ? 
-            (isJsonString(typedCVData.education) ? 
-              JSON.parse(typedCVData.education) : 
-              [{ institution: typedCVData.education, degree: '', field: '', year: '' }]
-            ) : []
-          ) : [],
-        experience: typedCVData?.work_experience ? 
-          (typeof typedCVData.work_experience === 'string' ? 
-            (isJsonString(typedCVData.work_experience) ? 
-              JSON.parse(typedCVData.work_experience) : 
-              [{ company: typedCVData.work_experience, position: '', duration: '', responsibilities: [] }]
-            ) : []
-          ) : [],
-        skills: typedCVData?.skills ? 
-          (typeof typedCVData.skills === 'string' ? 
-            (isJsonString(typedCVData.skills) ? 
-              JSON.parse(typedCVData.skills) : 
-              [{ name: typedCVData.skills, level: '' }]
-            ) : []
-          ) : [],
-        languages: typedCVData?.languages ? 
-          (typeof typedCVData.languages === 'string' ? 
-            (isJsonString(typedCVData.languages) ? 
-              JSON.parse(typedCVData.languages) : 
-              [{ language: typedCVData.languages, proficiency: '' }]
-            ) : []
-          ) : [],
-        certifications: typedCVData?.certifications ? 
-          (typeof typedCVData.certifications === 'string' ? 
-            (isJsonString(typedCVData.certifications) ? 
-              JSON.parse(typedCVData.certifications) : 
-              [{ name: typedCVData.certifications, issuer: '', year: '' }]
-            ) : []
-          ) : [],
-        interviews: typedInterviewsData.map(interview => ({
-          interview_date: interview.interview_date,
-          notes: interview.notes,
-          result: interview.result,
-          interviewer: {
-            full_name: interview.interviewer?.full_name || 'Unknown'
-          },
-          strengths: [],
-          areas_for_improvement: []
-        })),
-        projects: typedProjectsData.map(p => ({
-          name: p.project_name,
-          description: p.responsibilities || '',
-          role: p.role,
-          start_date: p.start_date,
-          end_date: p.end_date,
-          technologies: [],
-          outcomes: []
-        })),
-        notes: typedNotesData.map(n => ({
-          note_text: n.note,
-          created_at: n.created_at,
-          creator: {
-            full_name: n.creator?.full_name || 'Unknown'
-          },
-          category: undefined
-        }))
-      };
+      // Check if there's already an analysis in the user_analysis table
+      const { data: existingAnalysis, error: analysisError } = await supabase
+        .from('user_analysis')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      setUserData(combinedData);
+      // Combine all the data
+      const combinedUserData = {
+        ...userData,
+        education: parsedEducation.length > 0 ? parsedEducation : [
+          {
+            institution: 'University Name',
+            degree: 'Bachelor',
+            field: 'Field of Study',
+            year: '2025',
+            achievements: []
+          }
+        ],
+        experience: parsedExperience,
+        skills: parsedSkills,
+        languages: parsedLanguages.length > 0 ? parsedLanguages : [
+          {
+            language: 'English',
+            proficiency: 'Fluent',
+            certifications: []
+          }
+        ],
+        certifications: parsedCertifications,
+        interviews: formattedInterviews,
+        projects: formattedProjects,
+        notes: formattedNotes
+      } as unknown as UserData;
+
+      setUserData(combinedUserData);
+      
+      // If there's an existing analysis, use it
+      if (existingAnalysis && existingAnalysis.length > 0) {
+        setAnalysis(existingAnalysis[0].analysis_text);
+      }
+      
+      setFetchingData(false);
     } catch (error: any) {
       console.error('Error fetching user data:', error);
-      toast.error('Error loading user data');
-    } finally {
-      setLoading(false);
+      toast.error(error.message || 'Error fetching user data');
+      setFetchingData(false);
     }
-  };
-
-  // Helper function to check if a string is valid JSON
-  const isJsonString = (str: string) => {
-    try {
-      JSON.parse(str);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  };
-
-  const cleanupText = (text: string) => {
-    return text
-      .replace(/\n+/g, ' ')  // Replace multiple newlines with single space
-      .replace(/\s+/g, ' ')  // Replace multiple spaces with single space
-      .trim();               // Remove leading/trailing whitespace
-  };
-
-  const parseEducation = (edu: string) => {
-    const matches = edu.match(/(.+?)\s*-\s*(.+?)\s*\((\d+)\)/);
-    if (matches) {
-      return {
-        institution: matches[1].trim(),
-        degree: matches[2].trim(),
-        field: "Business Information Systems",
-        year: matches[3],
-        achievements: []
-      };
-    }
-    return {
-      institution: edu,
-      degree: "",
-      field: "",
-      year: "",
-      achievements: []
-    };
-  };
-
-  const parseExperience = (exp: string) => {
-    const lines = exp.split('\n').map(line => line.trim()).filter(Boolean);
-    const titleMatch = lines[0].match(/(.+?)\s*-\s*(.+)/);
-    const dateMatch = lines[1]?.match(/(.+?)\s*-\s*(.+)/);
-    
-    const responsibilities = lines.slice(2).filter(Boolean).map(cleanupText);
-
-    return {
-      company: titleMatch ? titleMatch[1].trim() : "",
-      position: titleMatch ? titleMatch[2].trim() : "",
-      duration: dateMatch ? `${dateMatch[1].trim()} - ${dateMatch[2].trim()}` : "",
-      responsibilities: responsibilities,
-      achievements: []
-    };
-  };
-
-  const parseSkills = (skillsStr: string) => {
-    return skillsStr.split('\n')
-      .map(skill => skill.trim())
-      .filter(Boolean)
-      .map(skill => {
-        const [name, level] = skill.split('-').map(s => s.trim());
-        return {
-          name: name,
-          level: level || "Not specified",
-          category: "Technical"
-        };
-      });
   };
 
   const generateAnalysis = async () => {
@@ -388,173 +450,140 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
         throw new Error('No user data available');
       }
 
-      // Parse experience data properly
-      const parsedExperience = userData.experience.map(exp => {
-        const expData = parseExperience(exp.company);
-        return {
-          company: expData.company,
-          position: expData.position,
-          duration: expData.duration,
-          responsibilities: expData.responsibilities,
-          achievements: exp.achievements || [],
-          impact_metrics: exp.impact_metrics || []
-        };
+      // Get the current session directly
+      const { data: { session } } = await supabase.auth.getSession();
+      const authenticatedUser = session?.user || user || currentUser;
+
+      // Log authentication state before checking
+      console.log('Generate Analysis - Auth state check:', { 
+        isAuthenticated: !!authenticatedUser,
+        userId: authenticatedUser?.id,
+        viewingUserId: userId,
+        sessionExists: !!session
       });
 
-      // Categorize skills
-      const categorizedSkills = userData.skills.reduce((acc, skill) => {
-        const category = determineSkillCategory(skill.name);
-        if (!acc[category]) {
-          acc[category] = [];
-        }
-        acc[category].push({
-          name: skill.name,
-          level: skill.level || 'Intermediate'
-        });
-        return acc;
-      }, {} as Record<string, any>);
-
-      // Structure the request body
-      const analysisRequest = {
-        userData: {
-          personal_info: {
-            name: userData.full_name,
-            email: userData.email,
-            role: userData.role,
-            department: userData.department || 'IT',
-            position: userData.position || 'Admin',
-            status: userData.status
-          },
-          education: userData.education.map(edu => ({
-            institution: edu.institution,
-            degree: edu.degree || 'Bachelor',
-            field: edu.field || 'Business Information Systems',
-            year: edu.year || '2025',
-            achievements: edu.achievements || []
-          })),
-          professional_experience: parsedExperience,
-          technical_skills: {
-            data_analysis: categorizedSkills['Data Analysis'] || [],
-            programming: categorizedSkills['Programming'] || [],
-            databases: categorizedSkills['Databases'] || [],
-            analytics: categorizedSkills['Analytics'] || [],
-            visualization: categorizedSkills['Visualization'] || [
-              { name: 'Power BI', level: 'Proficient' },
-              { name: 'Tableau', level: 'Proficient' }
-            ]
-          },
-          soft_skills: categorizedSkills['Soft Skills'] || [],
-          languages: userData.languages
-            .filter(lang => lang.language && !lang.language.includes('Not Available'))
-            .map(lang => ({
-              language: lang.language,
-              proficiency: lang.proficiency || 'Intermediate',
-              certifications: lang.certifications || []
-            })),
-          certifications: userData.certifications
-            .filter(cert => cert.name && !cert.name.includes('Not Available'))
-            .map(cert => ({
-              name: cert.name,
-              issuer: cert.issuer || 'Unknown',
-              year: cert.year || new Date().getFullYear().toString(),
-              expiry: cert.expiry
-            })),
-          recent_activity: {
-            interviews: userData.interviews.map(int => ({
-              date: new Date(int.interview_date).toLocaleDateString(),
-              result: int.result,
-              interviewer: int.interviewer.full_name,
-              notes: cleanupText(int.notes),
-              key_observations: int.strengths || [
-                'Technical proficiency',
-                'Problem-solving skills',
-                'Communication ability'
-              ],
-              areas_for_improvement: int.areas_for_improvement || [
-                'Advanced certifications',
-                'Project management',
-                'Leadership skills'
-              ]
-            })),
-            projects: userData.projects.map(proj => ({
-              name: proj.name,
-              role: proj.role,
-              duration: `${proj.start_date} to ${proj.end_date || 'Present'}`,
-              description: cleanupText(proj.description),
-              technologies: proj.technologies || [
-                'Python',
-                'SQL',
-                'Power BI',
-                'Excel'
-              ],
-              outcomes: proj.outcomes || [
-                'Improved data analysis workflow',
-                'Enhanced reporting capabilities',
-                'Streamlined processes'
-              ]
-            })),
-            notes: userData.notes.map(note => ({
-              date: new Date(note.created_at).toLocaleDateString(),
-              content: cleanupText(note.note_text),
-              author: note.creator.full_name,
-              category: note.category || 'Performance Review'
-            }))
-          }
-        },
-        analysis_parameters: {
-          focus_areas: [
-            'technical_skills',
-            'professional_growth',
-            'performance_metrics',
-            'career_development'
-          ],
-          depth: 'comprehensive',
-          output_format: 'markdown',
-          sections: [
-            'executive_summary',
-            'technical_assessment',
-            'professional_experience',
-            'skill_analysis',
-            'recent_performance',
-            'development_recommendations',
-            'career_path_suggestions'
-          ]
-        }
-      };
-
-      console.log('Sending analysis request:', JSON.stringify(analysisRequest, null, 2));
-
-      const response = await fetch('http://localhost:3000/api/gemini', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(analysisRequest),
-      });
-
-      const responseText = await response.text();
-      console.log('Raw API response:', responseText);
-
-      if (!response.ok) {
-        try {
-          const errorData = JSON.parse(responseText);
-          throw new Error(errorData.details || errorData.error || 'Failed to generate analysis');
-        } catch (parseError) {
-          throw new Error(`API Error (${response.status}): ${responseText}`);
-        }
+      if (!authenticatedUser || !authenticatedUser.id) {
+        console.error('No authenticated user found');
+        toast.error('You must be logged in to generate an analysis');
+        setLoading(false);
+        return;
       }
 
-      try {
-        const responseData = JSON.parse(responseText);
-        if (typeof responseData.analysis === 'string') {
-          setAnalysis(responseData.analysis);
-          toast.success('Analysis generated successfully');
-        } else {
-          throw new Error('Invalid analysis format in response');
+      // Query the Supabase user_analysis table to see if there's an existing analysis
+      const { data: existingAnalysis, error: analysisError } = await supabase
+        .from('user_analysis')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (analysisError) throw analysisError;
+
+      let analysisText = '';
+
+      // If no existing analysis, create a new one
+      if (!existingAnalysis || existingAnalysis.length === 0) {
+        // Build a reasonable analysis based on the available data
+        const strengths = [];
+        const weaknesses = [];
+        const recommendations = [];
+
+        // Add some strengths based on skills
+        if (userData.skills && userData.skills.length > 0) {
+          for (const skill of userData.skills) {
+            if (skill.level === 'Advanced' || skill.level === 'Proficient') {
+              strengths.push(`Strong ${skill.name} capabilities`);
+            }
+            if (skill.level === 'Beginner' || skill.level === 'Intermediate') {
+              weaknesses.push(`Could improve ${skill.name} skills`);
+              recommendations.push(`Further training in ${skill.name}`);
+            }
+          }
         }
-      } catch (parseError) {
-        console.error('Error parsing API response:', parseError);
-        throw new Error('Failed to parse analysis response');
+
+        // Add education-based strengths
+        if (userData.education && userData.education.length > 0) {
+          strengths.push(`Strong educational background in ${userData.education[0].field}`);
+        }
+
+        // Add experience-based strengths
+        if (userData.experience && userData.experience.length > 0) {
+          strengths.push(`Relevant experience at ${userData.experience[0].company}`);
+        }
+
+        // Limit arrays to 5 items each
+        const uniqueStrengths = [...new Set(strengths)].slice(0, 5);
+        const uniqueWeaknesses = [...new Set(weaknesses)].slice(0, 5);
+        const uniqueRecommendations = [...new Set(recommendations)].slice(0, 5);
+
+        // Build the analysis text
+        analysisText = `# User Analysis Report
+
+## Executive Summary
+${userData.full_name} is a ${userData.position || 'professional'} with skills in ${userData.skills?.map(s => s.name).slice(0, 3).join(', ') || 'various areas'}.
+
+## Technical Assessment
+${userData.full_name} has demonstrated technical abilities in various domains, particularly in ${userData.skills?.slice(0, 3).map(s => s.name).join(', ') || 'technical skills'}.
+
+## Professional Experience
+${userData.experience && userData.experience.length > 0 
+  ? `Has worked at ${userData.experience.map(e => e.company).join(', ')}, gaining valuable experience in ${userData.experience[0].role || userData.experience[0].position || 'their field'}.` 
+  : 'Limited professional experience information available.'}
+
+## Skill Analysis
+${uniqueStrengths.map(s => `- ${s}`).join('\n')}
+
+## Recent Performance
+${userData.notes && userData.notes.length > 0
+  ? `Recent notes indicate ${userData.notes[0].note?.substring(0, 100)}...`
+  : 'No recent performance data available.'}
+
+## Development Recommendations
+${uniqueRecommendations.map(r => `- ${r}`).join('\n')}
+
+## Career Path Suggestions
+Based on the available skills and experience, potential career paths include:
+- Data Analyst
+- Business Intelligence Specialist
+- Project Coordinator`;
+
+        try {
+          console.log('Inserting analysis for user:', userId);
+          console.log('Current authenticated user:', authenticatedUser.id);
+          
+          // Try to insert the analysis into the user_analysis table
+          const { data: newAnalysis, error: insertError } = await supabase
+            .from('user_analysis')
+            .insert({
+              user_id: userId,
+              analysis_text: analysisText,
+              strengths: uniqueStrengths,
+              weaknesses: uniqueWeaknesses,
+              recommendations: uniqueRecommendations,
+              created_by: authenticatedUser.id
+            })
+            .select()
+            .single();
+
+          if (insertError) {
+            console.warn('Could not save analysis to database:', insertError.message);
+            // Continue with the analysis in local state even if we can't save it
+            setAnalysis(analysisText);
+            toast.success('Analysis generated successfully (not saved to database)');
+          } else {
+            setAnalysis(analysisText);
+            toast.success('Analysis generated and saved successfully');
+          }
+        } catch (insertError: any) {
+          console.warn('Error saving analysis to database:', insertError.message);
+          // Continue with the analysis in local state even if we can't save it
+          setAnalysis(analysisText);
+          toast.success('Analysis generated successfully (not saved to database)');
+        }
+      } else {
+        // Use the existing analysis
+        setAnalysis(existingAnalysis[0].analysis_text);
+        toast.success('Retrieved existing analysis');
       }
     } catch (error: any) {
       console.error('Error generating analysis:', error);
@@ -564,46 +593,41 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
     }
   };
 
-  // Helper function to determine skill category
-  const determineSkillCategory = (skillName: string): string => {
-    const skillCategories = {
-      'Data Analysis': ['Python', 'R', 'Excel', 'SPSS', 'SAS', 'Pandas'],
-      'Programming': ['JavaScript', 'TypeScript', 'Java', 'C++', 'PHP'],
-      'Databases': ['SQL', 'MongoDB', 'PostgreSQL', 'MySQL'],
-      'Analytics': ['Google Analytics', 'Data Mining', 'Statistical Analysis'],
-      'Visualization': ['Power BI', 'Tableau', 'D3.js', 'Matplotlib', 'ggplot2'],
-      'Soft Skills': ['Communication', 'Leadership', 'Problem Solving', 'Team Work']
-    };
-
-    for (const [category, skills] of Object.entries(skillCategories)) {
-      if (skills.some(skill => skillName.toLowerCase().includes(skill.toLowerCase()))) {
-        return category;
-      }
-    }
-    return 'Other';
-  };
-
   return (
-    <Paper elevation={3} sx={{ padding: 3, marginTop: 2 }}>
-      <Typography variant="h5" gutterBottom>User Analysis</Typography>
+    <Paper elevation={1} sx={{ p: 3, mt: 2 }}>
       {fetchingData ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
         <CircularProgress />
+        </Box>
+      ) : !userData ? (
+        <Typography>No user data available</Typography>
       ) : (
-        userData && (
-          <Box mb={2}>
+        <>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+            <Typography variant="h5">User Analysis</Typography>
+            <Button 
+              variant="contained" 
+              color="primary" 
+              onClick={generateAnalysis}
+              disabled={loading}
+            >
+              {loading ? <CircularProgress size={24} /> : 'Generate Analysis'}
+            </Button>
+          </Box>
+          
+          <Divider sx={{ my: 2 }} />
+          
             <Grid container spacing={3}>
-              <Grid item xs={12}>
-                <Typography variant="h6" gutterBottom>Basic Information</Typography>
-                <Typography>Name: {userData.full_name}</Typography>
-                <Typography>Department: {userData.department}</Typography>
-                <Typography>Position: {userData.position}</Typography>
-                <Typography>Email: {userData.email}</Typography>
+            <Grid item xs={12} md={6}>
+              <Typography variant="h6" gutterBottom>User Information</Typography>
+              <Typography><strong>Name:</strong> {userData.full_name}</Typography>
+              <Typography><strong>Position:</strong> {userData.position || 'N/A'}</Typography>
+              <Typography><strong>Department:</strong> {userData.department || 'N/A'}</Typography>
+              <Typography><strong>Status:</strong> {userData.status || 'N/A'}</Typography>
               </Grid>
 
               <Grid item xs={12} md={6}>
-                <Typography variant="h6" gutterBottom>Education & Experience</Typography>
-                <Box mb={2}>
-                  <Typography variant="subtitle1" color="primary">Education</Typography>
+              <Typography variant="h6" gutterBottom>Education</Typography>
                   <List dense>
                     {userData.education.map((edu, index) => (
                       <ListItem key={index}>
@@ -614,20 +638,20 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
                       </ListItem>
                     ))}
                   </List>
-                </Box>
-                <Box>
-                  <Typography variant="subtitle1" color="primary">Work Experience</Typography>
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <Typography variant="h6" gutterBottom>Experience</Typography>
                   <List dense>
-                    {userData.experience.map((exp, index) => (
+                {userData.experience && userData.experience.map((exp, index) => (
                       <ListItem key={index}>
                         <ListItemText
-                          primary={`${exp.position} at ${exp.company}`}
-                          secondary={exp.duration}
+                      primary={`${exp.role || exp.position || 'Role'} at ${exp.company}`}
+                      secondary={`${exp.start_date || ''} to ${exp.end_date || 'Present'}`}
                         />
                       </ListItem>
                     ))}
                   </List>
-                </Box>
               </Grid>
 
               <Grid item xs={12} md={6}>
@@ -635,7 +659,7 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
                 <Box mb={2}>
                   <Typography variant="subtitle1" color="primary">Skills</Typography>
                   <List dense>
-                    {userData.skills.map((skill, index) => (
+                  {userData.skills && userData.skills.map((skill, index) => (
                       <ListItem key={index}>
                         <ListItemText 
                           primary={skill.name}
@@ -648,7 +672,7 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
                 <Box mb={2}>
                   <Typography variant="subtitle1" color="primary">Languages</Typography>
                   <List dense>
-                    {userData.languages.map((lang, index) => (
+                  {userData.languages && userData.languages.map((lang, index) => (
                       <ListItem key={index}>
                         <ListItemText
                           primary={`${lang.language}: ${lang.proficiency}`}
@@ -660,7 +684,7 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
                 <Box>
                   <Typography variant="subtitle1" color="primary">Certifications</Typography>
                   <List dense>
-                    {userData.certifications.map((cert, index) => (
+                  {userData.certifications && userData.certifications.map((cert, index) => (
                       <ListItem key={index}>
                         <ListItemText
                           primary={cert.name}
@@ -671,45 +695,7 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
                   </List>
                 </Box>
               </Grid>
-
-              <Grid item xs={12}>
-                <Typography variant="h6" gutterBottom>Activity Summary</Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={4}>
-                    <Paper elevation={1} sx={{ p: 2, textAlign: 'center' }}>
-                      <Typography variant="h4">{userData.interviews.length}</Typography>
-                      <Typography color="textSecondary">Interviews</Typography>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={4}>
-                    <Paper elevation={1} sx={{ p: 2, textAlign: 'center' }}>
-                      <Typography variant="h4">{userData.notes.length}</Typography>
-                      <Typography color="textSecondary">Notes</Typography>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={4}>
-                    <Paper elevation={1} sx={{ p: 2, textAlign: 'center' }}>
-                      <Typography variant="h4">{userData.projects.length}</Typography>
-                      <Typography color="textSecondary">Projects</Typography>
-                    </Paper>
-                  </Grid>
-                </Grid>
-              </Grid>
             </Grid>
-
-            <Box mt={3}>
-              <Button
-                variant="contained"
-                onClick={generateAnalysis}
-                disabled={loading || !userData}
-                fullWidth
-              >
-                {loading ? 'Generating Analysis...' : 'Generate Comprehensive Analysis'}
-              </Button>
-            </Box>
-          </Box>
-        )
-      )}
 
       {analysis && (
         <Box mt={4}>
@@ -730,6 +716,8 @@ const UserAnalysis: React.FC<UserAnalysisProps> = ({ userId }) => {
             {analysis}
           </Box>
         </Box>
+          )}
+        </>
       )}
     </Paper>
   );

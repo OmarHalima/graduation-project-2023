@@ -363,30 +363,6 @@ export function ProjectsSection({ userId, canEdit, onUpdate }: ProjectsSectionPr
               onChange={(e) => setFormData({ ...formData, project_name: e.target.value })}
               placeholder="Enter project name"
             />
-            <Autocomplete
-              options={projectOptions}
-              getOptionLabel={(option) => option.project_name}
-              value={projectOptions.find(p => p.project_name === formData.project_name) || null}
-              onChange={(_, newValue) => {
-                setFormData({ 
-                  ...formData, 
-                  project_name: newValue?.project_name || '',
-                  role: newValue?.role || '',
-                  start_date: newValue?.start_date || '',
-                  end_date: newValue?.end_date || '',
-                  responsibilities: newValue?.responsibilities || ''
-                });
-              }}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Project Name"
-                  required
-                  error={!formData.project_name}
-                  helperText={!formData.project_name ? 'Project name is required' : ''}
-                />
-              )}
-            />
             <TextField
               fullWidth
               required

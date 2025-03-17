@@ -16,6 +16,7 @@ import { NewUserModal } from './components/user/NewUserModal';
 import { UserDetailsPage } from './pages/UserDetailsPage';
 import { ProjectsPage } from './components/admin/ProjectsPage';
 import { TasksPage } from './pages/TasksPage';
+import { PhasesPage } from './pages/PhasesPage';
 import { DeepsearchPage } from './pages/DeepsearchPage';
 import { runStorageInitialization } from './lib/initStorage';
 
@@ -291,6 +292,7 @@ function AppContent() {
           <Route path="/admin/projects" element={<ProjectsPage />} />
           <Route path="/admin/projects/:projectId" element={<ProjectDetailsPage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/phases" element={<PhasesPage />} />
           <Route path="/deepsearch" element={<DeepsearchPage />} />
           <Route
             path="/settings"

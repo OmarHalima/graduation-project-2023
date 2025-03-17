@@ -54,6 +54,7 @@ import toast from 'react-hot-toast';
 import { EditUserModal } from '../components/user/EditUserModal';
 import { DeleteUserModal } from '../components/user/DeleteUserModal';
 import { useAuth } from '../contexts/auth/AuthContext';
+import { UserAvatar } from '../components/UserAvatar';
 
 interface UsersPageProps {
   users: User[];
@@ -398,7 +399,12 @@ export function UsersPage({ users, otherUsers, projects, onDeleteUser, onEditUse
                     bgcolor: users.some(u => u.id === user.id) ? 'action.hover' : 'inherit'
                   }}
                 >
-                  <TableCell>{user.full_name}</TableCell>
+                  <TableCell>
+                    <Box display="flex" alignItems="center" gap={2}>
+                      <UserAvatar user={user} sx={{ width: 32, height: 32 }} />
+                      <Typography>{user.full_name}</Typography>
+                    </Box>
+                  </TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>
                     <Chip

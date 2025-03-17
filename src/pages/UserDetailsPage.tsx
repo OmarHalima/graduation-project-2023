@@ -125,7 +125,7 @@ export function UserDetailsPage() {
   };
 
   const canEdit = currentUser?.role === 'admin' || currentUser?.id === userId;
-  const canEditNotes = currentUser?.role === 'project_manager';
+  const canEditNotes = currentUser?.role === 'admin' || currentUser?.role === 'project_manager';
 
   // Prevent project managers from viewing admin or other project managers' information
   if (currentUser?.role === 'project_manager' && 

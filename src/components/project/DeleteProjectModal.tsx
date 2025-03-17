@@ -15,11 +15,12 @@ import {
 
 interface DeleteProjectModalProps {
   projectId: string;
+  projectName?: string;
   onClose: () => void;
   onDeleted: () => void;
 }
 
-export function DeleteProjectModal({ projectId, onClose, onDeleted }: DeleteProjectModalProps) {
+export function DeleteProjectModal({ projectId, projectName, onClose, onDeleted }: DeleteProjectModalProps) {
   const [loading, setLoading] = useState(false);
 
   const handleDelete = async () => {
@@ -55,8 +56,11 @@ export function DeleteProjectModal({ projectId, onClose, onDeleted }: DeleteProj
       </DialogTitle>
 
       <DialogContent>
-        <Typography>
-          Are you sure you want to delete this project? This action cannot be undone.
+        <Typography variant="body1" gutterBottom>
+          Are you sure you want to delete {projectName ? <strong>"{projectName}"</strong> : 'this project'}? 
+          This action cannot be undone.
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
           All associated data, including team members and tasks, will be permanently deleted.
         </Typography>
       </DialogContent>

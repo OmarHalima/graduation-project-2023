@@ -21,6 +21,7 @@ import { Project, ProjectMember } from '../types/project';
 import { User } from '../types/auth';
 import { TeamAssignmentModal } from '../components/TeamAssignmentModal';
 import { KnowledgeBase } from '../components/KnowledgeBase';
+import { UserAvatar } from '../components/UserAvatar';
 
 export function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -220,20 +221,10 @@ export function ProjectPage() {
                     },
                   }}
                 >
-                  {member.user?.avatar_url ? (
-                    <img
-                      src={member.user.avatar_url}
-                      alt={member.user.full_name}
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: '50%',
-                        marginRight: 8,
-                      }}
-                    />
-                  ) : (
-                    <UsersIcon style={{ width: 32, height: 32, marginRight: 8 }} />
-                  )}
+                  <UserAvatar 
+                    user={member.user}
+                    sx={{ width: 32, height: 32, mr: 1 }}
+                  />
                   <Box flex={1}>
                     <Typography variant="subtitle2">
                       {member.user?.full_name}

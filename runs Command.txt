@@ -4,3 +4,6 @@ cd server && npm run dev
 
 npm run dev
 
+npm run build
+
+npx @agentdeskai/browser-tools-server@1.2.0

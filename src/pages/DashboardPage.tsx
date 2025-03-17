@@ -130,16 +130,18 @@ export function DashboardPage({ user, users, admins, projectManagers }: Dashboar
           </Typography>
         </Box>
         <Tooltip title="Refresh all data">
-          <IconButton 
-            onClick={refreshData} 
-            disabled={isLoadingActivities || isLoadingProjects}
-            className="text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-          >
-            <RefreshIcon 
-              size={20} 
-              className={isLoadingActivities || isLoadingProjects ? 'animate-spin' : ''} 
-            />
-          </IconButton>
+          <span>
+            <IconButton 
+              onClick={refreshData} 
+              disabled={isLoadingActivities || isLoadingProjects}
+              className="text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              <RefreshIcon 
+                size={20} 
+                className={isLoadingActivities || isLoadingProjects ? 'animate-spin' : ''} 
+              />
+            </IconButton>
+          </span>
         </Tooltip>
       </Box>
 

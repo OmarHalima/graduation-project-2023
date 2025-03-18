@@ -8,7 +8,7 @@ export default defineConfig({
   build: {
     target: 'esnext',
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks: {
@@ -16,11 +16,8 @@ export default defineConfig({
             'react',
             'react-dom',
             'react-router-dom',
-            'react-beautiful-dnd',
             '@supabase/supabase-js',
-            'date-fns',
           ],
-          ui: ['lucide-react', 'react-hot-toast'],
         },
       },
     },

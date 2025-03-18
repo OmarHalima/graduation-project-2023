@@ -1,7 +1,11 @@
 [build]
-  command = "npm run build"
+  command = "npm run build:app"
   publish = "dist"
 
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_FLAGS = "--no-optional"
+  
 [[redirects]]
   from = "/*"
   to = "/index.html"

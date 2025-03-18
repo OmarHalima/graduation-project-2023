@@ -1,30 +1,29 @@
-const { spawn } = require('child_process');
-const path = require('path');
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import cors from 'cors';
+import dotenv from 'dotenv';
 
-// Start the frontend
-const frontend = spawn('npm', ['run', 'dev'], {
-  stdio: 'inherit',
-  shell: true
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(cors());
+app.use(express.json());
+
+// Serve static files from the dist directory
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// Handle SPA routing - redirect all requests to index.html
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-// Start the backend
-const backend = spawn('node', ['server/index.js'], {
-  stdio: 'inherit',
-  shell: true
-});
-
-// Log when processes exit
-frontend.on('close', (code) => {
-  console.log(`Frontend process exited with code ${code}`);
-});
-
-backend.on('close', (code) => {
-  console.log(`Backend process exited with code ${code}`);
-});
-
-// Handle process termination
-process.on('SIGINT', () => {
-  frontend.kill('SIGINT');
-  backend.kill('SIGINT');
-  process.exit();
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 }); 

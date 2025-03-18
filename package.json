@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "start": "node index.js",
-    "build": "echo 'Creating static export' && npm run build:static",
+    "build": "npm run build:app",
     "build:static": "node scripts/create-static-build.js",
     "build:app": "node scripts/netlify-build.js",
     "lint": "eslint .",

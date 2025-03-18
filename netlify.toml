@@ -5,11 +5,17 @@
 [build.environment]
   NODE_VERSION = "18"
   NPM_FLAGS = "--no-optional"
+  NETLIFY_USE_YARN = "false"
+  NETLIFY_NEXT_PLUGIN_SKIP = "true"
   
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Explicitly disable framework detection
+[build.processing]
+  skip_processing = true
 
 # Tell Netlify to ignore Next.js
 [build.processing.html]

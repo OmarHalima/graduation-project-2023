@@ -16,7 +16,7 @@ export default defineConfig({
             'react',
             'react-dom',
             'react-router-dom',
-            'react-beautiful-dnd',
+            '@hello-pangea/dnd',
             '@supabase/supabase-js',
             'date-fns',
           ],

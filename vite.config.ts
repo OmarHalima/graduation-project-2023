@@ -4,11 +4,10 @@ import react from '@vitejs/plugin-react';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/',
   build: {
     target: 'esnext',
     outDir: 'dist',
-    sourcemap: false,
+    sourcemap: true,
     rollupOptions: {
       output: {
         manualChunks: {
@@ -16,8 +15,11 @@ export default defineConfig({
             'react',
             'react-dom',
             'react-router-dom',
+            'react-beautiful-dnd',
             '@supabase/supabase-js',
+            'date-fns',
           ],
+          ui: ['lucide-react', 'react-hot-toast'],
         },
       },
     },
@@ -37,6 +39,5 @@ export default defineConfig({
   preview: {
     port: 5174,
     strictPort: true,
-    host: true,
   },
 });

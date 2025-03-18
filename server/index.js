@@ -474,13 +474,13 @@ app.post('/api/parse-cv', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log('Environment:', {
-    nodeEnv: process.env.NODE_ENV,
-    hasApiKey: !!process.env.GEMINI_API_KEY,
-    apiKeyLength: process.env.GEMINI_API_KEY?.length || 0
+// Instead of listening directly, export the app for Vercel
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 3001;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
   });
-}); 
+}
+
+// Export the Express app
+module.exports = app; 

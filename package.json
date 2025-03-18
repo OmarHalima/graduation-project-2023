@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "start": "node index.js",
-    "build": "NPM_CONFIG_PLATFORM=linux tsc && vite build --config vite.config.ts",
+    "build": "vite build --config vite.config.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "deploy:staging": "npm run build && supabase functions deploy",

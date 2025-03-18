@@ -5,14 +5,6 @@
       "destination": "/index.html"
     }
   ],
-  "build": {
-    "env": {
-      "ROLLUP_WASM_NODE": "true"
-    }
-  },
-  "functions": {
-    "api/**/*": {
-      "runtime": "nodejs18.x"
-    }
-  }
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist"
 } 

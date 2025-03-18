@@ -1,10 +1,11 @@
 [build]
-  command = "npm run build:app"
+  command = "ROLLUP_WASM_NODE=1 npm run build:app"
   publish = "dist"
 
 [build.environment]
   NODE_VERSION = "18"
   NPM_FLAGS = "--no-optional"
+  ROLLUP_WASM_NODE = "true"
   
 [[redirects]]
   from = "/*"

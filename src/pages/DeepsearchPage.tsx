@@ -27,12 +27,82 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/auth/AuthContext';
 import toast from 'react-hot-toast';
 
+// Typewriter component for creating typing animation effect
+interface TypewriterTextProps {
+  text: string;
+  speed?: number;
+  onComplete?: () => void;
+}
+
+const TypewriterText: React.FC<TypewriterTextProps> = ({ text, speed = 20, onComplete }) => {
+  const [displayedText, setDisplayedText] = useState('');
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isComplete, setIsComplete] = useState(false);
+
+  useEffect(() => {
+    // Reset state when text changes
+    setDisplayedText('');
+    setCurrentIndex(0);
+    setIsComplete(false);
+  }, [text]);
+
+  useEffect(() => {
+    if (currentIndex < text.length) {
+      // Vary the typing speed slightly to make it look more natural
+      const variableSpeed = speed + Math.random() * 10 - 5;
+      
+      // Type faster for spaces and punctuation
+      const currentChar = text[currentIndex];
+      const adjustedSpeed = /[\s.,;!?]/.test(currentChar) ? variableSpeed * 0.5 : variableSpeed;
+
+      const timer = setTimeout(() => {
+        setDisplayedText(prev => prev + text[currentIndex]);
+        setCurrentIndex(prevIndex => prevIndex + 1);
+      }, adjustedSpeed);
+      
+      return () => clearTimeout(timer);
+    } else {
+      setIsComplete(true);
+      onComplete?.();
+    }
+  }, [currentIndex, text, speed, onComplete]);
+
+  return (
+    <ReactMarkdown
+      components={{
+        code: ({ node, inline, className, children, ...props }: any) => {
+          const match = /language-(\w+)/.exec(className || '');
+          return !inline && match ? (
+            <Box sx={{ mt: 2, mb: 2 }}>
+              <SyntaxHighlighter
+                style={materialDark}
+                language={match[1]}
+                PreTag="div"
+                {...props}
+              >
+                {String(children).replace(/\n$/, '')}
+              </SyntaxHighlighter>
+            </Box>
+          ) : (
+            <code className={className} {...props}>
+              {children}
+            </code>
+          );
+        },
+      }}
+    >
+      {displayedText}
+    </ReactMarkdown>
+  );
+};
+
 interface Message {
   id: string;
   content: string;
   type: 'user' | 'assistant';
   timestamp: Date;
   conversation_id?: string;
+  isTyping?: boolean;
 }
 
 interface Conversation {
@@ -48,6 +118,110 @@ const FLOWISE_CONFIG = {
   apiHost: import.meta.env.VITE_FLOWISE_API_HOST,
 };
 
+// Add this function to format and style JSON-like content
+const formatStructuredContent = (content: string) => {
+  try {
+    // Try to parse the content as JSON
+    const parsedContent = JSON.parse(content);
+    
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {Object.entries(parsedContent).map(([key, value]: [string, any]) => (
+          <Box key={key}>
+            {/* Section Header */}
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 600,
+                color: 'primary.main',
+                mb: 1,
+                borderBottom: '2px solid',
+                borderColor: 'primary.light',
+                pb: 0.5,
+              }}
+            >
+              {key.replace(/([A-Z])/g, ' $1').trim()}
+            </Typography>
+
+            {/* Section Content */}
+            {typeof value === 'object' ? (
+              // Handle nested objects (like SWOT Analysis)
+              <Box sx={{ pl: 2 }}>
+                {Object.entries(value).map(([subKey, subValue]: [string, any]) => (
+                  <Box key={subKey} sx={{ mb: 2 }}>
+                    <Typography
+                      variant="subtitle1"
+                      sx={{
+                        fontWeight: 600,
+                        color: 'secondary.main',
+                        mb: 0.5,
+                      }}
+                    >
+                      {subKey}
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      component="div"
+                      sx={{
+                        color: 'text.secondary',
+                        whiteSpace: 'pre-line',
+                        pl: 2,
+                      }}
+                    >
+                      {typeof subValue === 'string' ? subValue.replace(/^\* /gm, '• ') : subValue}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            ) : (
+              // Handle string values
+              <Typography
+                variant="body1"
+                sx={{
+                  color: 'text.secondary',
+                  pl: 2,
+                  whiteSpace: 'pre-line',
+                }}
+              >
+                {String(value).replace(/^\* /gm, '• ')}
+              </Typography>
+            )}
+          </Box>
+        ))}
+      </Box>
+    );
+  } catch (e) {
+    // If content is not JSON, return it as regular markdown
+    return (
+      <ReactMarkdown
+        components={{
+          code: ({ node, inline, className, children, ...props }: any) => {
+            const match = /language-(\w+)/.exec(className || '');
+            return !inline && match ? (
+              <Box sx={{ mt: 2, mb: 2 }}>
+                <SyntaxHighlighter
+                  style={materialDark}
+                  language={match[1]}
+                  PreTag="div"
+                  {...props}
+                >
+                  {String(children).replace(/\n$/, '')}
+                </SyntaxHighlighter>
+              </Box>
+            ) : (
+              <code className={className} {...props}>
+                {children}
+              </code>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    );
+  }
+};
+
 export function DeepsearchPage() {
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -56,24 +230,98 @@ export function DeepsearchPage() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const [currentSessionId, setCurrentSessionId] = useState<string>(crypto.randomUUID());
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const [userScrolled, setUserScrolled] = useState(false);
   const theme = useTheme();
 
+  // Add debug logging for session ID changes
+  useEffect(() => {
+    console.log('Session ID Changed:', {
+      currentSessionId,
+      sessionIdRef: sessionIdRef.current,
+      timestamp: new Date().toISOString()
+    });
+  }, [currentSessionId]);
+
+  // Validate session consistency
+  useEffect(() => {
+    if (currentSessionId !== sessionIdRef.current) {
+      console.warn('Session ID mismatch detected:', {
+        currentSessionId,
+        sessionIdRef: sessionIdRef.current,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }, [currentSessionId, messages]);
+
+  // Handle scrolling
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!userScrolled) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
+  // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  // Load conversations from Supabase on component mount
+  // Reset userScrolled when starting a new conversation
+  useEffect(() => {
+    if (messages.length === 0) {
+      setUserScrolled(false);
+    }
+  }, [messages.length]);
+
+  // Handle user scroll
+  const handleScroll = () => {
+    if (messagesContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+      // Check if user scrolled up (not at the bottom)
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+      setUserScrolled(!isAtBottom);
+      
+      // If user scrolls to bottom, reset userScrolled flag
+      if (isAtBottom) {
+        setUserScrolled(false);
+      }
+    }
+  };
+
+  // Modified useEffect for session ID persistence
   useEffect(() => {
     if (user) {
       loadConversations();
+      // Only initialize session ID if it hasn't been set yet
+      if (!sessionIdRef.current) {
+        const newSessionId = crypto.randomUUID();
+        console.log('Initializing new session ID:', {
+          newSessionId,
+          timestamp: new Date().toISOString()
+        });
+        sessionIdRef.current = newSessionId;
+        setCurrentSessionId(newSessionId);
+      }
     }
   }, [user]);
+
+  const validateSessionId = () => {
+    if (!sessionIdRef.current) {
+      console.error('No session ID available when expected');
+      return false;
+    }
+    if (currentSessionId !== sessionIdRef.current) {
+      console.error('Session ID mismatch:', {
+        currentSessionId,
+        sessionIdRef: sessionIdRef.current
+      });
+      return false;
+    }
+    return true;
+  };
 
   const loadConversations = async () => {
     try {
@@ -115,7 +363,13 @@ export function DeepsearchPage() {
   };
 
   const handleConversationSelect = async (conversation: Conversation) => {
+    console.log('Selecting conversation:', {
+      conversationId: conversation.id,
+      sessionId: conversation.session_id,
+      timestamp: new Date().toISOString()
+    });
     setCurrentConversationId(conversation.id);
+    sessionIdRef.current = conversation.session_id;
     setCurrentSessionId(conversation.session_id);
     setMessages(conversation.messages);
     setIsDrawerOpen(false);
@@ -123,6 +377,11 @@ export function DeepsearchPage() {
 
   const startNewConversation = () => {
     const newSessionId = crypto.randomUUID();
+    console.log('Starting new conversation:', {
+      newSessionId,
+      timestamp: new Date().toISOString()
+    });
+    sessionIdRef.current = newSessionId;
     setCurrentSessionId(newSessionId);
     setCurrentConversationId(null);
     setMessages([]);
@@ -130,35 +389,63 @@ export function DeepsearchPage() {
   };
 
   const sendMessageToFlowise = async (message: string, messageHistory: Message[]) => {
-    if (!currentSessionId) {
-      throw new Error('No session ID available');
+    const sessionId = sessionIdRef.current;
+    
+    // Validate session state before sending
+    if (!validateSessionId()) {
+      console.warn('Session validation failed, creating new session');
+      const newSessionId = crypto.randomUUID();
+      sessionIdRef.current = newSessionId;
+      setCurrentSessionId(newSessionId);
+      return sendMessageToFlowise(message, messageHistory);
     }
 
     try {
+      console.log('Sending message to Flowise:', {
+        sessionId,
+        messageLength: message.length,
+        historyLength: messageHistory.length,
+        timestamp: new Date().toISOString()
+      });
+
       const response = await axios.post(`${FLOWISE_CONFIG.apiHost}/api/v1/prediction/${FLOWISE_CONFIG.chatflowId}`, {
         question: message,
-        sessionId: currentSessionId,
+        overrideConfig: {
+          sessionId: sessionId
+        },
         history: messageHistory.map(msg => ({
-          role: msg.type === 'user' ? 'user' : 'assistant',
+          role: msg.type === 'user' ? 'userMessage' : 'apiMessage',
           content: msg.content
         }))
       });
 
+      console.log('Received response from Flowise:', {
+        sessionId,
+        responseReceived: !!response.data,
+        timestamp: new Date().toISOString()
+      });
+
       return response.data;
     } catch (error) {
-      console.error('Error sending message to Flowise:', error);
+      console.error('Error sending message to Flowise:', {
+        sessionId,
+        error,
+        timestamp: new Date().toISOString()
+      });
       throw error;
     }
   };
 
   const createConversation = async (title: string) => {
     if (!user) throw new Error('User not authenticated');
+    const sessionId = sessionIdRef.current;
+    if (!sessionId) throw new Error('No session ID available');
 
     const { data, error } = await supabase
       .from('deepsearch_conversations')
       .insert({
         user_id: user.id,
-        session_id: currentSessionId,
+        session_id: sessionId,
         title,
       })
       .select()
@@ -188,6 +475,12 @@ export function DeepsearchPage() {
     e.preventDefault();
     if (!inputValue.trim() || isLoading || !user) return;
 
+    // Validate session before proceeding
+    if (!validateSessionId()) {
+      toast.error('Session validation failed. Please try again.');
+      return;
+    }
+
     const newMessage: Message = {
       id: Date.now().toString(),
       content: inputValue.trim(),
@@ -204,29 +497,51 @@ export function DeepsearchPage() {
       // Create new conversation if needed
       let conversationId = currentConversationId;
       if (!conversationId) {
+        console.log('Creating new conversation for message');
         const newConversation = await createConversation(inputValue.trim().substring(0, 30) + '...');
         conversationId = newConversation.id;
         setCurrentConversationId(conversationId);
       }
 
+      // At this point conversationId is guaranteed to be a string
+      const actualConversationId: string = conversationId!;
+
       // Save user message
-      await saveMessage(newMessage, conversationId);
+      await saveMessage(newMessage, actualConversationId);
+
+      // Add a temporary loading message with isTyping flag
+      const tempResponse: Message = {
+        id: (Date.now() + 1).toString(),
+        content: "", // Empty content that will be filled character by character
+        type: 'assistant',
+        timestamp: new Date(),
+        isTyping: true,
+      };
+      
+      setMessages([...currentMessages, tempResponse]);
 
       // Get AI response
       const flowiseResponse = await sendMessageToFlowise(newMessage.content, currentMessages);
       
+      // Now update the content of the temp message to trigger the typing animation
       const response: Message = {
-        id: (Date.now() + 1).toString(),
+        id: tempResponse.id,
         content: flowiseResponse.text || "I apologize, but I couldn't process that request.",
         type: 'assistant',
         timestamp: new Date(),
+        isTyping: true, // Keep isTyping true to start the animation
       };
 
-      // Save AI message
-      await saveMessage(response, conversationId);
+      // Update the message with actual content - this will start the typing animation
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempResponse.id ? response : msg
+      ));
 
-      currentMessages = [...currentMessages, response];
-      setMessages(currentMessages);
+      // Save AI message to database
+      await saveMessage({
+        ...response,
+        isTyping: false // Don't save the typing state to database
+      }, actualConversationId);
       
       // Refresh conversations list
       await loadConversations();
@@ -239,6 +554,7 @@ export function DeepsearchPage() {
         content: "I apologize, but there was an error processing your request. Please try again later.",
         type: 'assistant',
         timestamp: new Date(),
+        isTyping: false,
       };
       setMessages(prev => [...prev, errorResponse]);
     } finally {
@@ -354,6 +670,8 @@ export function DeepsearchPage() {
 
       {/* Messages Container */}
       <Box
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
         sx={{
           flex: 1,
           overflowY: 'auto',
@@ -569,31 +887,20 @@ export function DeepsearchPage() {
                       lineHeight: 1.6,
                     }}
                   >
-                    <ReactMarkdown
-                      components={{
-                        code: ({ node, inline, className, children, ...props }: any) => {
-                          const match = /language-(\w+)/.exec(className || '');
-                          return !inline && match ? (
-                            <Box sx={{ mt: 2, mb: 2 }}>
-                              <SyntaxHighlighter
-                                style={materialDark}
-                                language={match[1]}
-                                PreTag="div"
-                                {...props}
-                              >
-                                {String(children).replace(/\n$/, '')}
-                              </SyntaxHighlighter>
-                            </Box>
-                          ) : (
-                            <code className={className} {...props}>
-                              {children}
-                            </code>
-                          );
-                        },
-                      }}
-                    >
-                      {message.content}
-                    </ReactMarkdown>
+                    {message.type === 'user' || !message.isTyping ? (
+                      formatStructuredContent(message.content)
+                    ) : (
+                      <TypewriterText 
+                        text={message.content} 
+                        speed={15} 
+                        onComplete={() => {
+                          // Mark typing as complete
+                          setMessages(prev => prev.map(msg => 
+                            msg.id === message.id ? { ...msg, isTyping: false } : msg
+                          ));
+                        }}
+                      />
+                    )}
                   </Typography>
                   <Typography
                     variant="caption"
@@ -612,6 +919,36 @@ export function DeepsearchPage() {
         )}
         <div ref={messagesEndRef} />
       </Box>
+
+      {/* Add scroll to bottom button if user has scrolled up */}
+      {userScrolled && messages.length > 0 && (
+        <Box 
+          sx={{ 
+            position: 'absolute', 
+            bottom: 80, 
+            right: 30, 
+            zIndex: 10 
+          }}
+        >
+          <IconButton
+            onClick={() => {
+              messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+              setUserScrolled(false);
+            }}
+            sx={{
+              bgcolor: alpha(theme.palette.primary.main, 0.1),
+              color: theme.palette.primary.main,
+              p: 1,
+              boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+              '&:hover': {
+                bgcolor: alpha(theme.palette.primary.main, 0.2),
+              },
+            }}
+          >
+            <ChevronRight style={{ transform: 'rotate(90deg)' }} />
+          </IconButton>
+        </Box>
+      )}
 
       {/* Input Area */}
       <Paper

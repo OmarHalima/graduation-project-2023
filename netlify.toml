@@ -11,8 +11,6 @@
   to = "/index.html"
   status = 200
 
-# Explicitly disable the Next.js plugin
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
-  [plugins.inputs]
-    enable = false
+# Tell Netlify to ignore Next.js
+[build.processing.html]
+  pretty_urls = true

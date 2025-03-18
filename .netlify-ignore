@@ -1,0 +1,2 @@
+# Tell Netlify to ignore Next.js detection
+.next 

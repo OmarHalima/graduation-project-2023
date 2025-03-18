@@ -7,7 +7,7 @@
     "dev": "vite",
     "start": "node index.js",
     "build": "echo 'Creating static export' && npm run build:static",
-    "build:static": "mkdir -p dist && (cp -r public/* dist/ || echo 'No public directory') && node scripts/create-placeholder.js",
+    "build:static": "node scripts/create-static-build.js",
     "build:app": "node scripts/netlify-build.js",
     "lint": "eslint .",
     "preview": "vite preview",

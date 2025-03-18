@@ -1,11 +1,10 @@
 [build]
-  command = "node scripts/netlify-build.js"
+  command = "npm run build:static"
   publish = "dist"
 
 [build.environment]
   NODE_VERSION = "18"
   NPM_FLAGS = "--no-optional"
-  ROLLUP_WASM_NODE = "true"
   
 [[redirects]]
   from = "/*"

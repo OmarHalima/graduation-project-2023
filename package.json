@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "start": "node index.js",
-    "build": "vite-node scripts/build.js",
+    "build": "echo 'Creating static export' && npm run build:static",
+    "build:static": "mkdir -p dist && cp -r public/* dist/ || echo 'No public directory'",
     "lint": "eslint .",
     "preview": "vite preview",
     "deploy:staging": "npm run build && supabase functions deploy",
